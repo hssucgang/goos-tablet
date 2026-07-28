@@ -1,0 +1,42 @@
+PUTTING THE PRODUCTION APP ON THE TABLET
+=======================================
+
+This folder is the whole app. It works with no internet.
+
+ROUTE 1 - straight off the tablet (simplest, no internet, no accounts)
+---------------------------------------------------------------------
+1. Copy this entire folder onto the tablet (USB cable, or the OneDrive
+   app with the folder made available offline).
+2. On the tablet, open index.html with Chrome.
+3. Chrome menu (three dots) -> "Add to Home screen".
+
+You get an icon on the home screen that opens the app. Because it is a
+local file it always works offline. Chrome keeps its address bar visible
+in this mode - that is a browser rule for local files, not a setting.
+
+ROUTE 2 - installed as a proper app (no address bar, full screen)
+-----------------------------------------------------------------
+Android will only install a web app properly if it is served over
+https. Free static hosts (Netlify Drop, GitHub Pages, Cloudflare Pages)
+will do that in a couple of minutes - drag this folder in and they give
+you a link.
+
+1. Upload this folder to any of those, get the https link.
+2. Open that link on the tablet in Chrome.
+3. Chrome offers "Install app" - accept it.
+
+Now it behaves like a normal installed app: its own icon, full screen,
+no address bar, and it keeps working with no signal because it caches
+itself the first time it loads. Only the first open needs internet.
+
+DAILY USE (either route)
+------------------------
+1. In GOOS: Schedule Production -> "Send recipes to the tablet". That
+   writes GOOS_PRODUCTION_<reference>.json into the tablet folder.
+2. On the tablet: open the app, tap the file box, pick that json file.
+   The tablet remembers it, so this is once a day, not once a batch.
+3. Staff sign in with their PIN and work through the batches.
+
+Finished reports are saved from the tablet. Nothing is lost if the
+tablet goes offline mid-batch - progress is stored on the tablet itself
+until the report is saved.

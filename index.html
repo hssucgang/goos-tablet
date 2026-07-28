@@ -1,0 +1,792 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>GOOS Production</title><!-- GOOS-RUNNER-APP -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1F2A4A">
+<style>
+:root{--cream:#FAF5EA;--navy:#1F2A4A;--peri:#8C9BE0;--wheat:#E0B54A;--ok:#256B45;--warn:#8F6111;--fail:#9E2E2E;--line:#D8CFBB}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font:18px/1.5 system-ui,sans-serif;background:var(--cream);color:var(--navy)}
+header{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:5}
+header b{font-size:20px}header small{opacity:.85;margin-left:auto;text-align:right;line-height:1.25;font-size:14px}
+main{padding:16px;max-width:900px;margin:0 auto;padding-bottom:130px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px;border-top:4px solid var(--peri)}
+h2{margin:0 0 6px;font-size:24px}h3{margin:18px 0 8px;font-size:17px;text-transform:uppercase;letter-spacing:.06em;color:#55607A}
+label{display:block;font-size:16px;font-weight:600;color:#55607A;margin:12px 0 5px}
+input,select,textarea{width:100%;padding:16px;font-size:22px;border:2px solid var(--line);border-radius:10px;background:#fff;color:var(--navy)}
+input:focus,textarea:focus{outline:4px solid var(--peri);outline-offset:1px}
+input:disabled{background:#E5E0D6;color:#6E6A5E;border-color:#CCC4B2}
+button{font:700 19px system-ui;padding:17px 18px;border:0;border-radius:12px;background:var(--navy);color:#fff;width:100%;margin-top:12px}
+button.ghost{background:#fff;color:var(--navy);border:2px solid var(--navy)}
+button.gold{background:var(--wheat);color:#2A2003}
+button:disabled{opacity:.45}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.item{border:2px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px;background:#fff}
+.item.done{border-color:var(--ok);background:#F1FAF4}
+.item.lock{background:#EFEDE6;border-color:#CCC4B2}
+.item.lock input{background:#E5E0D6;color:#6E6A5E;border-color:#CCC4B2}
+.rec{font-size:15px;font-weight:800;color:#55607A;margin-top:8px;letter-spacing:.06em}
+.icode{font-weight:800;font-size:24px;line-height:1.25;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.needband{margin:10px 0 12px;background:#FBEFD3;border:2px solid var(--wheat);border-radius:12px;padding:12px 14px}
+.needlab{font-size:14px;font-weight:800;letter-spacing:.1em;color:#7A5B12;text-transform:uppercase}
+.needval{font:800 40px/1.1 ui-monospace,'DejaVu Sans Mono',monospace;color:#1F2A4A;letter-spacing:1px;margin-top:2px}
+.needval .u{font-size:24px;font-weight:700;margin-left:8px;letter-spacing:0}
+.item.lock .needband{background:#E9E5DA;border-color:#CCC4B2}
+.item.lock .needval{color:#4A4536}
+.gotlab{font-size:14px;font-weight:800;letter-spacing:.1em;color:#55607A;text-transform:uppercase;margin-bottom:5px}
+.lotbox{border-radius:14px;padding:16px;background:#EFEDE6;border:2px solid #CCC4B2;border-left:12px solid var(--ok);margin-top:12px}
+.lotno{font:800 32px/1.2 ui-monospace,monospace;letter-spacing:1px;color:#3E3A2C}
+.step{display:flex;gap:12px;align-items:flex-start;margin-bottom:6px}
+.snum{flex:0 0 34px;height:34px;border-radius:99px;background:var(--navy);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:17px}
+.snum.done{background:var(--ok)}
+.snum.wait{background:#B8B1A0}
+.stitle{font-weight:800;font-size:19px}
+.grp{border-radius:14px;padding:2px 12px 12px;margin:26px 0 22px;border:2px solid var(--line);border-left:14px solid var(--gc)}
+.grp:first-of-type{margin-top:10px}
+.ghead{display:flex;align-items:center;gap:10px;margin:-2px -12px 14px;padding:14px;border-radius:10px 10px 0 0;background:var(--gc);color:#fff}
+.ghead b{font-size:22px;letter-spacing:.04em;text-transform:uppercase}
+.ghead span{margin-left:auto;font-size:16px;font-weight:800;background:rgba(255,255,255,.28);padding:5px 12px;border-radius:99px;white-space:nowrap}
+.dbtn{flex:0 0 140px;margin:0;font-size:19px}
+.name{font-weight:800;font-size:20px}
+.req{color:#55607A;font-size:17px}
+.tag{display:inline-block;padding:4px 12px;border-radius:99px;font-size:15px;font-weight:800;color:#fff;letter-spacing:.04em}
+.PASS{background:var(--ok)}.WATCH{background:var(--warn)}.FAIL{background:var(--fail)}
+.timer{font:800 64px/1 ui-monospace,monospace;text-align:center;margin:8px 0 4px;letter-spacing:2px}
+.tbox{border-radius:14px;padding:16px;margin:16px 0;background:#F2EEE4;border:2px solid var(--line)}
+.tbox.dark{background:#1F2A4A;border-color:#1F2A4A}
+.tbox.dark .timer{color:#3B4770}
+.tbox.dark .tnote{color:#9DAAE6}
+.tnote{text-align:center;font-size:15px;color:#55607A;letter-spacing:.06em;text-transform:uppercase;font-weight:800}
+.tstep{border:2px solid var(--line);border-left:14px solid #B8B1A0;border-radius:12px;padding:14px;margin-bottom:14px;background:#fff}
+.tstep.open{border-left-color:var(--wheat)}
+.tstep.set{border-left-color:var(--ok);background:#F1FAF4}
+.tstep.wait{background:#F6F4EE}
+.thead{display:flex;align-items:center;gap:12px}
+.tn{flex:0 0 40px;height:40px;border-radius:99px;background:#B8B1A0;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:19px}
+.tstep.open .tn{background:var(--wheat);color:#2A2003}
+.tstep.set .tn{background:var(--ok)}
+.ttitle{font-weight:800;font-size:21px;line-height:1.2}
+.trule{font-size:16px;font-weight:700;color:#7A5B12;margin-top:2px}
+.tstep.set .trule{color:#256B45}
+.stamp{font-size:15px;color:var(--ok);font-weight:800;margin-top:8px;letter-spacing:.05em}
+.waitmsg{font-size:16px;font-weight:700;color:#7A7568;margin-top:10px}
+.dest{font-size:15px;color:#55607A;margin-top:8px;word-break:break-all}
+.locked{opacity:.4;pointer-events:none}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:2px solid var(--line);padding:12px 16px;display:flex;gap:10px;z-index:6}
+.bar>*{flex:1;margin:0}
+.err{color:var(--fail);font-size:17px;margin-top:10px;font-weight:700}
+li{margin-bottom:10px;font-size:18px}
+</style></head><body>
+<header><b>GOOS &middot; Production</b><small id="hdr"></small></header>
+<main id="app"></main>
+<div class="bar" id="bar" style="display:none"></div>
+<script>
+var K='goos_tab_v5';
+var S=JSON.parse(localStorage.getItem(K)||'null')||
+  {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
+if(!S.pending)S.pending=[];
+if(!S.done)S.done={};
+function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
+function $(s){return document.querySelector(s)}
+function esc(t){return String(t==null?'':t).replace(/[<>&"]/g,function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]})}
+function pick(o,keys,d){if(d===undefined)d='';for(var i=0;i<keys.length;i++){var k=keys[i];if(o&&o[k]!=null&&o[k]!=='')return o[k]}return d}
+function num(v){var n=parseFloat(String(v).replace(/,/g,''));return isNaN(n)?0:n}
+function grade(req,act){if(!req)return'PASS';var d=Math.abs(act-req)/req*100;return d<=1?'PASS':d<=2?'WATCH':'FAIL'}
+function pad(n){return String(n).length<2?'0'+String(n):String(n)}
+function nowISO(){return new Date().toISOString()}
+function clockOf(iso){if(!iso)return'';var d=new Date(iso);
+ if(isNaN(d.getTime()))return String(iso);
+ return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())}
+function stampOf(iso){if(!iso)return'-';return String(iso).replace('T',' ').slice(0,19)}
+function dayOf(iso){return iso?String(iso).slice(0,10):'-'}
+function bigNum(v){var n=Number(v);if(!isFinite(n))return String(v);
+ var s=(Math.round(n*1000)/1000).toString(),p=s.split('.');
+ p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,',');return p.join('.')}
+
+/* ---------------- report destination ---------------- */
+var DIR=null;
+function canPickDir(){return typeof window.showDirectoryPicker==='function'}
+
+function pickDir(cb){
+ if(!canPickDir()){cb(false,'not supported');return}
+ window.showDirectoryPicker({id:'goos-reports',mode:'readwrite',
+   startIn:'documents'}).then(function(h){
+  if(h.requestPermission){
+   h.requestPermission({mode:'readwrite'}).then(function(p){
+    if(p==='granted'){DIR=h;S.dest=h.name;save();cb(true)}
+    else cb(false,'permission refused')}).catch(function(){cb(false,'permission refused')});
+  }else{DIR=h;S.dest=h.name;save();cb(true)}
+ }).catch(function(){cb(false,'cancelled')})}
+
+function writeToDir(files,done,fail){
+ if(!DIR){fail();return}
+ var i=0;
+ function next(){
+  if(i>=files.length){done();return}
+  var f=files[i++];
+  DIR.getFileHandle(f.name,{create:true}).then(function(fh){
+   return fh.createWritable()}).then(function(w){
+   return w.write(f).then(function(){return w.close()})}).then(next).catch(fail)}
+ next()}
+
+/* ---- schedule readers ---- */
+function recipes(){return pick(S.sched,['recipes','lines','items'],[])}
+function rName(r){return pick(r,['name','recipe','recipe_name','product'],'Recipe')}
+function ings(r){return pick(r,['ingredients','components'],[])}
+function cookMin(r){return num(pick(r,['cook_minutes','operation_minutes','minutes'],0))||10}
+function prod(r,k,alt){var p=r&&r.produce;if(p&&p[k]!=null&&p[k]!=='')return p[k];return pick(r,alt,'')}
+function pQty(r){return prod(r,'qty',['produce_qty','target_qty','qty'])}
+function pSize(r){return prod(r,'size',['target_size','size','pack_size'])}
+function iName(g){return String(pick(g,['short_name','short','alias','code'],'')).trim()
+ ||String(pick(g,['ingredient','name'],'')).trim()||'(no code)'}
+function iReq(g){return num(pick(g,['qty','quantity','required','req_qty'],0))}
+function iUom(g){return pick(g,['uom','unit'],'')}
+function iStage(g){return pick(g,['stage','group'],'')||'Ingredients'}
+function procOf(r){var p=pick(r,['procedure','steps'],[]);
+ if(typeof p==='string')p=p.split('\n');
+ return (p||[]).map(function(x){return typeof x==='string'?x:pick(x,['text','step'],'')})
+  .filter(function(x){return String(x).trim()})}
+
+/* ================= 1. SETUP ================= */
+var pendingSched=null;
+
+function screenLoad(){
+ $('#bar').style.display='none';$('#hdr').textContent='';
+ var haveSched=!!(pendingSched||S.sched);
+ var destOK=!!DIR||S.destMode==='share';
+ var s1=haveSched?'done':'',s2=haveSched?(destOK?'done':''):'wait';
+
+ var schedHTML=haveSched
+  ? '<div class="req">Loaded: <b>'+esc(pick(pendingSched||S.sched,['reference','ref'],'schedule'))+
+    '</b> &middot; '+esc(pick(pendingSched||S.sched,['date'],''))+' '+
+    esc(pick(pendingSched||S.sched,['shift'],''))+'</div>'+
+    '<button class="ghost" onclick="clearSched()">Pick a different file</button>'
+  : '<div class="req">Open the OneDrive app, go to <b>GOOS &rsaquo; Operations &rsaquo; '+
+    'Production</b>, and pick today\'s <b>GOOS_PRODUCTION_PS-&hellip;.json</b> file.</div>'+
+    '<input type="file" id="f" accept=".json,application/json" style="margin-top:10px">';
+
+ var destHTML;
+ if(!haveSched){
+  destHTML='<div class="req">Load the schedule first.</div>';
+ }else if(DIR){
+  destHTML='<div class="req">Reports will be written straight into:</div>'+
+   '<div class="name" style="margin-top:4px">'+esc(S.dest)+'</div>'+
+   '<button class="ghost" onclick="chooseDest()">Choose a different folder</button>';
+ }else if(canPickDir()){
+  destHTML='<div class="req">Choose the OneDrive folder finished reports go into '+
+   '&mdash; normally <b>GOOS &rsaquo; Operations &rsaquo; Reports</b>. Reports then save '+
+   'there automatically with no extra taps.</div>'+
+   '<button class="gold" onclick="chooseDest()">Choose the reports folder</button>'+
+   '<button class="ghost" onclick="useShare()">Use the share sheet instead</button>'+
+   '<div class="err" id="de"></div>';
+ }else{
+  destHTML='<div class="req">This tablet\u2019s browser cannot write into a folder '+
+   'directly, so each finished report opens the <b>share sheet</b> instead: tap '+
+   '<b>OneDrive</b>, then save into <b>GOOS &rsaquo; Operations &rsaquo; Reports</b>. '+
+   'Nothing is lost either way &mdash; a report stays flagged NOT SENT until it '+
+   'actually leaves the tablet.</div>'+
+   (S.destMode==='share'?'<div class="stamp">SHARE SHEET CONFIRMED</div>'
+     :'<button class="gold" onclick="useShare()">Understood \u2014 use the share sheet</button>');
+ }
+
+ $('#app').innerHTML='<div class="card"><h2>Set up this shift</h2>'+
+  '<p class="req">Two things before production starts: where the recipes come '+
+  'from, and where the finished reports go.</p></div>'+
+  '<div class="card"><div class="step"><div class="snum '+s1+'">1</div>'+
+   '<div style="flex:1"><div class="stitle">Load today\u2019s schedule</div>'+
+   schedHTML+'</div></div></div>'+
+  '<div class="card"><div class="step"><div class="snum '+s2+'">2</div>'+
+   '<div style="flex:1"><div class="stitle">Where finished reports go</div>'+
+   destHTML+'</div></div></div>';
+
+ if($('#f'))$('#f').onchange=function(ev){
+  var fl=ev.target.files[0];if(!fl)return;var rd=new FileReader();
+  rd.onload=function(){try{var j=JSON.parse(rd.result);
+   if(!pick(j,['recipes','lines','items'],[]).length)throw 0;
+   pendingSched=j;screenLoad();
+  }catch(x){alert('That file is not a GOOS production schedule.')}};
+  rd.onerror=function(){alert('Could not read that file. Try again.')};
+  rd.readAsText(fl)};
+
+ if(haveSched&&destOK)bar([['Start the shift',beginShift]]);
+ else $('#bar').style.display='none'}
+
+function clearSched(){pendingSched=null;
+ if(S.sched){S.sched=null;S.done={};S.batch=null;save()}
+ screenLoad()}
+function chooseDest(){pickDir(function(ok,why){
+ if(!ok&&$('#de'))$('#de').textContent=(why==='cancelled'?'No folder chosen.'
+  :'Could not use that folder \u2014 you can use the share sheet instead.');
+ screenLoad()})}
+function useShare(){S.destMode='share';DIR=null;S.dest=null;save();screenLoad()}
+
+function beginShift(){
+ if(pendingSched){
+  S.sched=pendingSched;S.ops=pick(pendingSched,['operator'],'');
+  S.done={};S.batch=null;pendingSched=null;save()}
+ screenList()}
+
+/* ================= 2. DAY SCHEDULE ================= */
+function screenList(){
+ var s=S.sched,rs=recipes();
+ $('#hdr').innerHTML=esc(pick(s,['reference','ref'],''))+'<br>'+
+  esc(pick(s,['date'],''))+' &middot; '+esc(pick(s,['shift'],''));
+ var unsent=[];(S.pending||[]).forEach(function(p,i){if(!p._shared)unsent.push([p,i])});
+ var warn=unsent.length?'<div class="card" style="border-top-color:var(--fail)">'+
+  '<h2>'+unsent.length+' report'+(unsent.length>1?'s':'')+' not yet sent</h2>'+
+  '<p class="req">Saved on this tablet but not yet in OneDrive. Send them before the shift ends.</p>'+
+  unsent.map(function(u){return'<button class="gold" onclick="reshare('+u[1]+')">Send '+
+   esc(u[0].recipe)+' &mdash; LOT '+esc(u[0].lot)+'</button>'}).join('')+'</div>':'';
+ var rows=rs.map(function(r,i){var d=S.done[i];
+  var right=d?(d.shared===false?'<span class="tag WATCH">NOT SENT</span>'
+                              :'<span class="tag PASS">DONE</span>')
+             :'<button style="margin:0;width:auto;padding:14px 24px" onclick="start('+i+')">Start</button>';
+  return'<div class="item '+(d?'done':'')+'"><div class="row" style="align-items:center">'+
+   '<div><div class="name">'+esc(rName(r))+'</div><div class="req">'+
+   esc(pQty(r))+' &times; '+esc(pSize(r))+(d?' &middot; LOT '+esc(d.lot):'')+'</div></div>'+
+   '<div style="flex:0 0 auto">'+right+'</div></div></div>'}).join('');
+ var notes=pick(s,['notes'],'');
+ $('#app').innerHTML=warn+'<div class="card"><h2>Today\'s batches</h2>'+
+  '<div class="req">Operator: <b>'+esc(S.ops||'\u2014')+'</b> &middot; Prepared by '+
+  esc(pick(s,['prepared_by'],'\u2014'))+'</div>'+
+  (notes?'<p class="req">Note: '+esc(notes)+'</p>':'')+
+  '<p class="req">Start one recipe at a time. Once the LOT is locked you stay '+
+  'on that batch until its report is saved.</p>'+
+  '<div class="dest">Reports \u2192 '+(DIR?('folder <b>'+esc(S.dest)+'</b>')
+   :'share sheet \u2192 OneDrive')+'</div></div>'+
+  '<div class="card">'+(rows||'<p class="req">No recipes in this schedule.</p>')+'</div>'+
+  '<div class="card"><button class="ghost" onclick="newSched()">Load another schedule</button>'+
+  '<button class="ghost" onclick="screenLoad()">Change the reports folder</button></div>';
+ $('#bar').style.display='none'}
+
+function newSched(){
+ var u=(S.pending||[]).filter(function(p){return!p._shared}).length;
+ if(u&&!confirm(u+' report(s) have not reached OneDrive yet. Load a new schedule anyway?'))return;
+ if(!confirm('Load a different schedule?'))return;
+ S.sched=null;S.ops='';S.done={};S.batch=null;save();pendingSched=null;screenLoad()}
+
+/* ================= 3. LOT ================= */
+function start(i){
+ S.batch={i:i,lot:'',lot_at:null,step:'lot',act:{},lock:{},
+          t1:null,t1_at:null,t2:null,t2_at:null,t0:null,t0_at:null,
+          t3:null,t3_at:null,t4:null,t4_at:null,
+          inc:'',sig:'',started:nowISO()};
+ save();screenLot()}
+
+function screenLot(){
+ var b=S.batch,r=recipes()[b.i],locked=!!b.lot_at;
+ $('#hdr').innerHTML=esc(rName(r))+'<br>'+(locked?('LOT '+esc(b.lot)):'LOT not set');
+ var box=locked
+  ? '<div class="lotbox"><div class="needlab">Lot number</div>'+
+    '<div class="lotno">'+esc(b.lot)+'</div>'+
+    '<div class="stamp">RECORDED AT '+esc(clockOf(b.lot_at))+
+    ' &mdash; CANNOT BE CHANGED</div></div>'+
+    '<p class="req" style="margin-top:14px">This batch is now open. You stay on '+
+    'this recipe until its report is saved &mdash; the other recipes are locked '+
+    'so nothing is recorded against the wrong LOT.</p>'
+  : '<p class="req">Enter the <b>LOT number</b> for this batch. Everything '+
+    'recorded from here is traced to it, and it cannot be changed once set.</p>'+
+    '<label>LOT number</label><input id="lot" value="'+esc(b.lot)+'" autocomplete="off">'+
+    '<div class="err" id="e"></div>';
+ $('#app').innerHTML='<div class="card"><h2>'+esc(rName(r))+'</h2>'+
+  '<div class="req">'+esc(pQty(r))+' &times; '+esc(pSize(r))+'</div>'+box+'</div>';
+ if(locked){
+  bar([['Continue to ingredients',function(){
+   S.batch.step='prep';save();screenPrep()}]]);
+ }else{
+  bar([['Back to schedule',function(){S.batch=null;save();screenList()},'ghost'],
+   ['Lock LOT &amp; begin',function(){
+    var v=$('#lot').value.trim();
+    if(!v){$('#e').textContent='LOT number is required.';return}
+    if(!confirm('Lock LOT '+v+'?\n\nIt cannot be changed, and this batch must be '+
+     'completed before another recipe can be started.'))return;
+    S.batch.lot=v;S.batch.lot_at=nowISO();S.batch.step='prep';save();screenPrep()}]]);
+ }}
+
+/* ================= 4. INGREDIENT PREP ================= */
+var GC=['#1F2A4A','#256B45','#8F6111','#6B3F96','#0C6B78','#9E2E2E','#3E5F94','#755A22'];
+
+function screenPrep(){
+ var r=recipes()[S.batch.i],list=ings(r);
+ if(!S.batch.lock)S.batch.lock={};
+ $('#hdr').innerHTML=esc(rName(r))+'<br>LOT '+esc(S.batch.lot);
+ var map={},groups=[],cur=null;
+ list.forEach(function(g,j){var st=iStage(g);
+  if(!cur||cur.st!==st){cur={st:st,rows:[]};groups.push(cur)}
+  cur.rows.push([g,j])});
+ var html=groups.map(function(G){
+  if(!(G.st in map))map[G.st]=GC[Object.keys(map).length%GC.length];
+  var col=map[G.st],done=0;
+  G.rows.forEach(function(p){if(S.batch.lock[p[1]])done++});
+  var rows=G.rows.map(function(p){
+   var g=p[0],j=p[1],req=iReq(g),uom=iUom(g),
+       a=S.batch.act[j],locked=!!S.batch.lock[j],
+       gr=(a!=null&&a!=='')?grade(req,num(a)):null;
+   return'<div class="item '+(locked?'lock':(a!=null?'done':''))+'">'+
+    '<div class="icode">'+esc(iName(g))+
+      (gr?' <span class="tag '+gr+'">'+gr+'</span>':'')+'</div>'+
+    '<div class="needband"><div class="needlab">Weigh out</div>'+
+    '<div class="needval">'+esc(bigNum(req))+'<span class="u">'+esc(uom)+'</span></div></div>'+
+    '<div class="gotlab">Actual weighed</div>'+
+    '<div class="row"><input inputmode="decimal" id="a'+j+'" placeholder="'+esc(uom)+'" '+
+    'value="'+(a==null?'':esc(a))+'"'+(locked?' disabled':'')+'>'+
+    (locked?'<button class="dbtn ghost" disabled>Recorded</button>'
+           :'<button class="dbtn gold" onclick="lockAct('+j+')">Done</button>')+'</div>'+
+    (locked?'<div class="rec">RECORDED &mdash; CANNOT BE CHANGED</div>':'')+'</div>'}).join('');
+  return'<div class="grp" style="--gc:'+col+'"><div class="ghead"><b>'+esc(G.st)+'</b>'+
+   '<span>'+done+' / '+G.rows.length+'</span></div>'+rows+'</div>'}).join('');
+ $('#app').innerHTML='<div class="card"><h2>'+esc(rName(r))+'</h2>'+
+  '<div class="req">LOT <b>'+esc(S.batch.lot)+'</b> &middot; scale &times;'+
+  esc(pick(r,['scale_factor'],1))+'</div>'+
+  '<p class="req">Each coloured block is a separate vessel. Finish one block '+
+  'before moving to the next. Once you tap Done, that quantity is final.</p>'+
+  (html||'<p class="req">This recipe has no ingredient lines.</p>')+'</div>';
+ bar([['Back',function(){S.batch.step='lot';save();screenLot()},'ghost'],
+  ['Go to cooking',function(){
+   var all=true;list.forEach(function(_,j){if(!S.batch.lock[j])all=false});
+   if(!all){alert('Every ingredient must be measured and marked Done first.');return}
+   S.batch.step='cook';save();screenCook()}]])}
+
+function lockAct(j){
+ var el=$('#a'+j),v=el?el.value.trim():'';
+ if(v===''){alert('Enter the actual weight first.');return}
+ if(!confirm('Record '+v+'?\n\nOnce recorded this cannot be changed.'))return;
+ S.batch.act[j]=v;S.batch.lock[j]=true;save();screenPrep()}
+
+/* ================= 5. COOK / PASTEURIZATION ================= */
+var tick=null;
+var TSTEPS=[
+ {n:1,key:'t1',title:'Pre-Boil',rule:'Water must reach 80 \u00B0C',min:80,max:null,std:'min 80 C'},
+ {n:2,key:'t2',title:'Cooking Boil',rule:'Water must reach 80 \u00B0C',min:80,max:null,std:'min 80 C'},
+ {n:3,key:'t3',title:'Mid-Pasteurization',rule:'Must be 80\u201385 \u00B0C',min:80,max:85,std:'80-85 C'},
+ {n:4,key:'t4',title:'Final Pasteurization',rule:'Must be 85\u201390 \u00B0C',min:85,max:90,std:'85-90 C'}
+];
+
+function screenCook(){
+ var r=recipes()[S.batch.i],mins=cookMin(r),total=mins*60,b=S.batch;
+ $('#hdr').innerHTML=esc(rName(r))+'<br>LOT '+esc(b.lot);
+ function left(){return b.t0?Math.max(0,total-Math.floor((Date.now()-b.t0)/1000)):total}
+ function halfDone(){return b.t0&&left()<=Math.floor(total/2)}
+ function timeUp(){return b.t0&&left()===0}
+ function openStep(){
+  if(b.t1==null)return 1;
+  if(b.t2==null)return 2;
+  if(b.t3==null)return halfDone()?3:0;
+  if(b.t4==null)return timeUp()?4:0;
+  return 0}
+
+ function card(st){
+  var val=b[st.key],at=b[st.key+'_at'],
+      isOpen=(openStep()===st.n),
+      cls=val!=null?'set':(isOpen?'open':'wait'),body;
+  if(val!=null){
+   body='<div class="needband"><div class="needlab">Recorded</div>'+
+    '<div class="needval">'+esc(val)+'<span class="u">\u00B0C</span></div></div>'+
+    '<div class="stamp">AT '+esc(clockOf(at))+' &mdash; CANNOT BE CHANGED</div>';
+  }else if(isOpen){
+   body='<div class="gotlab">Thermometer reading</div>'+
+    '<div class="row"><input inputmode="decimal" id="ti'+st.n+'" placeholder="\u00B0C">'+
+    '<button class="dbtn gold" onclick="recTemp('+st.n+')">Record</button></div>'+
+    '<div class="err" id="te'+st.n+'"></div>';
+  }else{
+   body='<div class="waitmsg" id="tw'+st.n+'"></div>';
+  }
+  return'<div class="tstep '+cls+'" id="tc'+st.n+'"><div class="thead">'+
+   '<div class="tn">'+st.n+'</div><div><div class="ttitle">'+st.title+'</div>'+
+   '<div class="trule">'+st.rule+'</div></div></div>'+body+'</div>'}
+
+ var gated=(b.t2==null);
+ var timerHTML='<div class="tbox'+(gated?' dark':'')+'">'+
+   '<div class="timer" id="clock">--:--</div>'+
+   '<div class="tnote" id="tnote"></div></div>'+
+   ((!gated&&!b.t0)?'<button class="gold" id="go">Start the '+mins+
+     '-minute hold</button>':'');
+
+ var steps=procOf(r);
+ $('#app').innerHTML='<div class="card"><h2>Cooking &amp; pasteurization</h2>'+
+  '<div class="req">'+esc(rName(r))+' &middot; LOT '+esc(b.lot)+'</div>'+
+  '<p class="req">Four readings, in order. Each one is final once recorded.</p>'+
+  card(TSTEPS[0])+card(TSTEPS[1])+timerHTML+card(TSTEPS[2])+card(TSTEPS[3])+
+  '<div class="err" id="e"></div></div>'+
+  '<div class="card"><h3>Procedure</h3><ol>'+
+  (steps.map(function(p){return'<li>'+esc(p)+'</li>'}).join('')||
+   '<li class="req">No procedure recorded.</li>')+'</ol></div>';
+
+ function draw(){
+  var c=$('#clock');if(!c){if(tick){clearInterval(tick);tick=null}return}
+  var L=left();
+  c.textContent=gated?'--:--':(pad(Math.floor(L/60))+':'+pad(L%60));
+  $('#tnote').textContent=gated?'Locked until the Cooking Boil is recorded'
+   :(b.t0?('Hold started '+clockOf(b.t0_at)):'Ready \u2014 start when the boil is holding');
+  var w3=$('#tw3'),w4=$('#tw4');
+  if(w3)w3.textContent=b.t2==null?'Record the Cooking Boil first.'
+   :(!b.t0?'Start the hold timer.':'Unlocks at the half mark \u2014 '+
+     pad(Math.floor(Math.max(0,L-Math.floor(total/2))/60))+':'+
+     pad(Math.max(0,L-Math.floor(total/2))%60)+' to go.');
+  if(w4)w4.textContent=timeUp()?'Record the final reading.':'Unlocks at 00:00.';
+  if((b.t3==null&&halfDone()&&w3)||(b.t4==null&&timeUp()&&w4)){
+   if(tick){clearInterval(tick);tick=null}screenCook();return}
+  if(timeUp()&&tick){clearInterval(tick);tick=null}}
+
+ if($('#go'))$('#go').onclick=function(){
+  b.t0=Date.now();b.t0_at=nowISO();save();screenCook()};
+
+ draw();if(!gated&&b.t0&&!tick)tick=setInterval(draw,1000);
+
+ bar([['Back',function(){if(tick){clearInterval(tick);tick=null}
+   S.batch.step='prep';save();screenPrep()},'ghost'],
+  ['Finish batch',function(){
+   if(b.t1==null||b.t2==null){$('#e').textContent=
+    'Record the Pre-Boil and Cooking Boil readings first.';return}
+   if(!b.t0){$('#e').textContent='Start the hold timer first.';return}
+   if(!timeUp()){$('#e').textContent='Wait for the timer to reach 00:00.';return}
+   if(b.t3==null){$('#e').textContent='Record the Mid-Pasteurization reading.';return}
+   if(b.t4==null){$('#e').textContent='Record the Final Pasteurization reading.';return}
+   b.step='close';save();
+   if(tick){clearInterval(tick);tick=null}screenClose()}]])}
+
+function recTemp(n){
+ var st=TSTEPS[n-1],b=S.batch,
+     el=$('#ti'+n),er=$('#te'+n),t=num(el?el.value:'');
+ if(!t){er.textContent='Enter the thermometer reading.';return}
+ if(t>130){er.textContent=t+' \u00B0C looks like a typo \u2014 check the reading.';return}
+ if(st.min!=null&&t<st.min){
+  er.textContent='Only '+t+' \u00B0C \u2014 below the required '+st.min+
+   ' \u00B0C. Keep heating and read again.';el.value='';return}
+ if(st.max!=null&&t>st.max){
+  er.textContent=t+' \u00B0C is above the '+st.max+' \u00B0C limit. '+
+   'Let it settle and read again, or note it as an incident.';el.value='';return}
+ if(!confirm('Record '+t+' \u00B0C for '+st.title+'?\n\nThis cannot be changed.'))return;
+ b[st.key]=t;b[st.key+'_at']=nowISO();save();screenCook()}
+
+/* ================= 6. INCIDENTS + SIGN-OFF ================= */
+function screenClose(){var b=S.batch,r=recipes()[b.i];
+ $('#hdr').innerHTML=esc(rName(r))+'<br>LOT '+esc(b.lot);
+ $('#app').innerHTML='<div class="card"><h2>Close the batch</h2>'+
+  '<div class="req">'+esc(rName(r))+' &middot; LOT '+esc(b.lot)+'</div>'+
+  '<div class="req" style="margin-top:8px">Pre-Boil '+esc(b.t1)+' \u00B0C &middot; '+
+  'Cooking Boil '+esc(b.t2)+' \u00B0C &middot; Mid '+esc(b.t3)+' \u00B0C &middot; '+
+  'Final '+esc(b.t4)+' \u00B0C</div>'+
+  '<label>Incidents / notes (leave blank if none)</label>'+
+  '<textarea id="inc" rows="4">'+esc(b.inc)+'</textarea>'+
+  '<label>Operator sign-off (type your full name)</label>'+
+  '<input id="sig" value="'+esc(b.sig)+'" autocomplete="off">'+
+  '<div class="err" id="e"></div></div>';
+ bar([['Back',function(){b.step='cook';save();screenCook()},'ghost'],
+  [DIR?'Save report':'Save &amp; send PDF',function(){
+   var sg=$('#sig').value.trim();
+   if(!sg){$('#e').textContent='Sign-off name is required.';return}
+   b.inc=$('#inc').value.trim();b.sig=sg;saveReport()}]])}
+
+/* ================= 7. PDF ENGINE =================
+   A small vector PDF writer: filled bands, ruled tables, coloured pills.
+   No libraries, works offline, opens in any reader. */
+var INK=[0.12,0.16,0.29],GREYT=[0.33,0.38,0.48],FAINTT=[0.55,0.58,0.64],
+    WHITE=[1,1,1],GOLD=[0.88,0.71,0.29],GOLDBG=[0.984,0.937,0.827],
+    SOFT=[0.976,0.965,0.941],ZEBRA=[0.988,0.98,0.965],RULE=[0.85,0.81,0.73],
+    GREENC=[0.145,0.42,0.271],AMBERC=[0.561,0.38,0.067],REDC=[0.62,0.18,0.18];
+
+function pdfEsc(s){return String(s).split('').map(function(c){
+ return c.charCodeAt(0)>255?'?':c}).join('')
+ .replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)')}
+function f2(n){return Math.round(n*100)/100}
+function textW(s,size,bold,mono){s=String(s);
+ if(mono)return s.length*size*0.6;
+ var w=0;
+ for(var i=0;i<s.length;i++){var c=s[i];
+  if(c>='0'&&c<='9')w+=0.556;
+  else if(c===' ')w+=0.278;
+  else if('.,:;\'|!i'.indexOf(c)>=0)w+=0.26;
+  else if(c>='A'&&c<='Z')w+=0.68;
+  else if('mw'.indexOf(c)>=0)w+=0.82;
+  else w+=0.52}
+ return w*size*(bold?1.04:1)}
+
+function newDoc(){
+ var W=595,H=842,ML=40,MR=40,BOT=64,pages=[],cur=null,y=0;
+ var d={W:W,H:H,ML:ML,MR:MR,right:W-MR,inner:W-ML-MR};
+ function put(s){cur.push(s)}
+ d.pages=function(){return pages};
+ d.newPage=function(){cur=[];pages.push(cur);y=46};
+ d.y=function(){return y};
+ d.at=function(v){y=v};
+ d.gap=function(v){y+=v};
+ d.rect=function(x,yt,w,h,c){put(c.join(' ')+' rg '+f2(x)+' '+f2(H-yt-h)+' '+
+   f2(w)+' '+f2(h)+' re f')};
+ d.line=function(x1,yt1,x2,yt2,c,lw){put(f2(lw||0.7)+' w '+(c||RULE).join(' ')+
+   ' RG '+f2(x1)+' '+f2(H-yt1)+' m '+f2(x2)+' '+f2(H-yt2)+' l S')};
+ d.text=function(s,x,yt,size,o){o=o||{};s=String(s==null?'':s);
+  var fn=o.mono?'F3':(o.b?'F2':'F1'),w=textW(s,size,o.b,o.mono),xx=x;
+  if(o.al==='r')xx=x-w; else if(o.al==='c')xx=x-w/2;
+  put('BT /'+fn+' '+size+' Tf '+(o.c||INK).join(' ')+' rg 1 0 0 1 '+
+   f2(xx)+' '+f2(H-yt-size*0.76)+' Tm ('+pdfEsc(s)+') Tj ET')};
+ d.wrap=function(s,size,maxW){var words=String(s||'').split(/\s+/),out=[],l='';
+  words.forEach(function(x){var t=(l?l+' ':'')+x;
+   if(textW(t,size)>maxW&&l){out.push(l);l=x}else l=t});
+  if(l)out.push(l);return out.length?out:['']};
+ d.need=function(h,onNew){if(y+h>H-BOT){d.newPage();if(onNew)onNew();return true}
+  return false};
+ d.bottom=H-BOT;
+ return d}
+
+/* section heading with a gold underline */
+function section(d,title){
+ d.need(34);
+ d.text(title,d.ML,d.y(),11.5,{b:1,c:INK});
+ d.gap(15);
+ d.line(d.ML,d.y(),d.ML+58,d.y(),GOLD,2.2);
+ d.gap(11)}
+
+/* a ruled table with a shaded header, zebra rows and optional pills */
+function table(d,cols,rows){
+ var HH=20,RH=18;
+ function header(){
+  d.rect(d.ML,d.y(),d.inner,HH,INK);
+  var x=d.ML;
+  cols.forEach(function(c){
+   var tx=c.al==='r'?x+c.w-7:(c.al==='c'?x+c.w/2:x+7);
+   d.text(c.t,tx,d.y()+5.5,8.5,{b:1,c:WHITE,al:c.al||'l'});
+   x+=c.w});
+  d.gap(HH)}
+ header();
+ var z=0;
+ rows.forEach(function(r){
+  if(r.sub){
+   if(d.need(RH+HH,header)){}
+   d.rect(d.ML,d.y(),d.inner,16,GOLDBG);
+   d.text(String(r.sub).toUpperCase(),d.ML+7,d.y()+4,8.5,{b:1,c:[0.478,0.357,0.071]});
+   d.gap(16);z=0;return}
+  if(d.need(RH,header)){z=0}
+  if(z%2)d.rect(d.ML,d.y(),d.inner,RH,ZEBRA);
+  var x=d.ML;
+  cols.forEach(function(c,i){
+   var v=r.c[i],tx=c.al==='r'?x+c.w-7:(c.al==='c'?x+c.w/2:x+7);
+   if(c.pill&&v){
+    var pc=v==='PASS'?GREENC:(v==='WATCH'?AMBERC:REDC),
+        pw=textW(v,7.5,1)+14,px=x+(c.w-pw)/2;
+    d.rect(px,d.y()+3.5,pw,11.5,pc);
+    d.text(v,px+pw/2,d.y()+5.6,7.5,{b:1,c:WHITE,al:'c'});
+   }else{
+    d.text(v,tx,d.y()+5,9,{al:c.al||'l',b:!!r.b,
+      c:r.dim?GREYT:INK,mono:!!c.mono});
+   }
+   x+=c.w});
+  d.line(d.ML,d.y()+RH,d.right,d.y()+RH,RULE,0.5);
+  d.gap(RH);z++});
+ d.gap(4)}
+
+/* two-column label/value panel */
+function panel(d,pairs){
+ var rowH=15,n=Math.ceil(pairs.length/2),h=n*rowH+12;
+ d.need(h+8);
+ d.rect(d.ML,d.y(),d.inner,h,SOFT);
+ d.line(d.ML,d.y(),d.ML,d.y()+h,GOLD,2.5);
+ var colW=d.inner/2,top=d.y()+7;
+ pairs.forEach(function(p,i){
+  var cx=d.ML+10+(i%2)*colW,cy=top+Math.floor(i/2)*rowH;
+  d.text(String(p[0]).toUpperCase(),cx,cy,7,{b:1,c:FAINTT});
+  d.text(p[1],cx+92,cy-0.5,9,{b:!!p[2]})});
+ d.gap(h+12)}
+
+function finishDoc(d,footL){
+ var pages=d.pages(),n=pages.length;
+ pages.forEach(function(p,i){
+  var cur=p,W=d.W,H=d.H,yy=H-44;
+  cur.push(f2(0.5)+' w '+RULE.join(' ')+' RG '+f2(d.ML)+' '+f2(H-yy)+' m '+
+   f2(d.right)+' '+f2(H-yy)+' l S');
+  function ft(s,x,al){var w=textW(s,7.5),xx=al==='r'?x-w:x;
+   cur.push('BT /F1 7.5 Tf '+FAINTT.join(' ')+' rg 1 0 0 1 '+f2(xx)+' '+
+    f2(H-yy-14)+' Tm ('+pdfEsc(s)+') Tj ET')}
+  ft(footL,d.ML,'l');
+  ft('Page '+(i+1)+' of '+n,d.right,'r')});
+ /* assemble */
+ var W=d.W,H=d.H,out='%PDF-1.4\n',off=[];
+ function obj(s){off.push(out.length);out+=s}
+ var kids=[];for(var i=0;i<n;i++)kids.push((6+i*2)+' 0 R');
+ obj('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+ obj('2 0 obj\n<< /Type /Pages /Count '+n+' /Kids ['+kids.join(' ')+'] >>\nendobj\n');
+ obj('3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n');
+ obj('4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n');
+ obj('5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold /Encoding /WinAnsiEncoding >>\nendobj\n');
+ pages.forEach(function(p,i){var c=p.join('\n');
+  obj((6+i*2)+' 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+W+' '+H+
+   '] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents '+
+   (7+i*2)+' 0 R >>\nendobj\n');
+  obj((7+i*2)+' 0 obj\n<< /Length '+c.length+' >>\nstream\n'+c+'\nendstream\nendobj\n')});
+ var xref=out.length,cnt=off.length+1;
+ out+='xref\n0 '+cnt+'\n0000000000 65535 f \n'+off.map(function(o){
+  var s=String(o);while(s.length<10)s='0'+s;return s+' 00000 n \n'}).join('');
+ out+='trailer\n<< /Size '+cnt+' /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+ var bytes=new Uint8Array(out.length);
+ for(var k=0;k<out.length;k++)bytes[k]=out.charCodeAt(k)&255;
+ return new Blob([bytes],{type:'application/pdf'})}
+
+/* ================= 8. THE REPORT ================= */
+function reportObject(){
+ var b=S.batch,r=recipes()[b.i],s=S.sched;
+ return{format:'goos.production.report v2',
+  schedule_ref:pick(s,['reference','ref'],''),date:pick(s,['date'],''),
+  shift:pick(s,['shift'],''),recipe:rName(r),lot:b.lot,lot_set_at:b.lot_at,
+  size:pSize(r),produce_qty:pQty(r),scale_factor:pick(r,['scale_factor'],1),
+  operator:S.ops,signed_off_by:b.sig,started_at:b.started,saved_at:nowISO(),
+  temp_preboil_c:b.t1,temp_preboil_at:b.t1_at,
+  temp_cookboil_c:b.t2,temp_cookboil_at:b.t2_at,
+  hold_started_at:b.t0_at,hold_minutes:cookMin(r),
+  temp_mid_past_c:b.t3,temp_mid_past_at:b.t3_at,
+  temp_final_past_c:b.t4,temp_final_past_at:b.t4_at,
+  incidents:b.inc||'None',
+  ingredients:ings(r).map(function(g,j){
+   var req=iReq(g),act=num(b.act[j]);
+   return{stage:iStage(g),code:iName(g),uom:iUom(g),required:req,actual:act,
+    variance_pct:req?Number((((act-req)/req)*100).toFixed(2)):0,
+    grade:grade(req,act)}})}}
+
+function reportPDF(R){
+ var d=newDoc();d.newPage();
+
+ /* --- masthead --- */
+ d.rect(0,0,d.W,86,INK);
+ d.text('GRAIN OLA',d.ML,20,19,{b:1,c:WHITE});
+ d.text('PRODUCTION BATCH REPORT',d.ML,45,10,{b:1,c:[0.62,0.68,0.85]});
+ d.text('Recorded on the production tablet',d.ML,60,8,{c:[0.45,0.51,0.7]});
+ d.text('LOT NUMBER',d.right,20,7.5,{b:1,c:[0.62,0.68,0.85],al:'r'});
+ d.text(R.lot,d.right,31,17,{b:1,c:WHITE,al:'r',mono:1});
+ d.text('locked '+stampOf(R.lot_set_at),d.right,56,7.5,{c:[0.45,0.51,0.7],al:'r'});
+ d.rect(0,86,d.W,3,GOLD);
+ d.at(104);
+
+ /* --- run detail --- */
+ panel(d,[
+  ['Recipe',R.recipe,1],['Schedule',R.schedule_ref||'-'],
+  ['Produce',R.produce_qty+' x '+R.size],['Production date',R.date||'-'],
+  ['Scale factor','x '+R.scale_factor],['Shift',R.shift||'-'],
+  ['Operator',R.operator||R.signed_off_by||'-'],['Signed off by',R.signed_off_by||'-',1],
+  ['Batch started',stampOf(R.started_at)],['Report saved',stampOf(R.saved_at)]]);
+
+ /* --- ingredients --- */
+ section(d,'INGREDIENT CONSUMPTION');
+ var cols=[{t:'Item code',w:175},{t:'Required',w:90,al:'r'},
+           {t:'Actual',w:90,al:'r'},{t:'Variance',w:80,al:'r'},
+           {t:'Grade',w:80,al:'c',pill:1}];
+ var rows=[],stage='',cP=0,cW=0,cF=0;
+ R.ingredients.forEach(function(g){
+  if(g.stage!==stage){stage=g.stage;rows.push({sub:stage||'Ingredients'})}
+  if(g.grade==='PASS')cP++;else if(g.grade==='WATCH')cW++;else cF++;
+  rows.push({c:[g.code,bigNum(g.required)+' '+g.uom,bigNum(g.actual)+' '+g.uom,
+    (g.variance_pct>0?'+':'')+g.variance_pct.toFixed(2)+' %',g.grade]})});
+ if(!rows.length)rows.push({c:['No ingredient lines','-','-','-',''],dim:1});
+ table(d,cols,rows);
+ d.need(20);
+ d.text('Tolerance: PASS within 1%, WATCH within 2%, FAIL above 2%.',
+  d.ML,d.y(),8,{c:GREYT});
+ d.text(cP+' PASS   '+cW+' WATCH   '+cF+' FAIL',d.right,d.y()-1,9,
+  {b:1,al:'r',c:cF?REDC:(cW?AMBERC:GREENC)});
+ d.gap(22);
+
+ /* --- temperatures --- */
+ section(d,'COOKING & PASTEURIZATION');
+ function res(v,lo,hi){if(v==null)return'';
+  if(v<lo)return'FAIL';if(hi!=null&&v>hi)return'FAIL';return'PASS'}
+ var tcols=[{t:'Stage',w:150},{t:'Standard',w:95},{t:'Reading',w:70,al:'r'},
+            {t:'Time recorded',w:130},{t:'Result',w:70,al:'c',pill:1}];
+ table(d,tcols,[
+  {c:['1  Pre-Boil','Reach 80 C',R.temp_preboil_c+' C',stampOf(R.temp_preboil_at),
+      res(R.temp_preboil_c,80,null)]},
+  {c:['2  Cooking Boil','Reach 80 C',R.temp_cookboil_c+' C',stampOf(R.temp_cookboil_at),
+      res(R.temp_cookboil_c,80,null)]},
+  {c:['     Hold started',R.hold_minutes+' minutes','-',stampOf(R.hold_started_at),''],dim:1},
+  {c:['3  Mid-Pasteurization','80 - 85 C',R.temp_mid_past_c+' C',stampOf(R.temp_mid_past_at),
+      res(R.temp_mid_past_c,80,85)]},
+  {c:['4  Final Pasteurization','85 - 90 C',R.temp_final_past_c+' C',stampOf(R.temp_final_past_at),
+      res(R.temp_final_past_c,85,90)]}]);
+ d.need(18);
+ d.text('The hold is timed only from the Cooking Boil \u2014 the timer stays locked '+
+  'until that reading is recorded.',d.ML,d.y(),8,{c:GREYT});
+ d.gap(22);
+
+ /* --- incidents --- */
+ section(d,'INCIDENTS & NOTES');
+ var lines=d.wrap(R.incidents||'None',9,d.inner-24),bh=Math.max(34,lines.length*12+18);
+ d.need(bh+6);
+ d.rect(d.ML,d.y(),d.inner,bh,(R.incidents&&R.incidents!=='None')?[0.996,0.949,0.941]:SOFT);
+ d.line(d.ML,d.y(),d.ML,d.y()+bh,(R.incidents&&R.incidents!=='None')?REDC:RULE,2.5);
+ lines.forEach(function(l,i){d.text(l,d.ML+12,d.y()+10+i*12,9)});
+ d.gap(bh+22);
+
+ /* --- sign-off --- */
+ d.need(64);
+ var half=(d.inner-30)/2;
+ [['Operator sign-off',R.signed_off_by],['QA verified by','']].forEach(function(p,i){
+  var x=d.ML+i*(half+30);
+  d.line(x,d.y()+26,x+half,d.y()+26,INK,0.8);
+  d.text(p[1]||' ',x,d.y()+10,10,{b:1});
+  d.text(String(p[0]).toUpperCase(),x,d.y()+31,7.5,{b:1,c:FAINTT})});
+ d.gap(52);
+ d.text('Sensory, SG, Brix and pH are recorded separately in the GOOS QA Database.',
+  d.ML,d.y(),8,{c:GREYT});
+
+ return finishDoc(d,'Grain Ola  \u00B7  '+R.recipe+'  \u00B7  LOT '+R.lot)}
+
+function baseName(R){
+ return'GOOS_REPORT_'+(R.schedule_ref||'PS')+'_'+String(R.lot).replace(/[^\w-]/g,'')}
+
+function saveReport(){
+ var R=reportObject(),di=S.batch.i;
+ S.pending.push(R);
+ S.done[di]={lot:R.lot,at:R.saved_at,shared:false};
+ S.batch=null;save();
+ shareReport(S.pending.length-1,di)}
+
+function shareReport(pi,di){
+ var R=S.pending[pi],base=baseName(R),pdf=null,jsn=null;
+ try{
+  pdf=new File([reportPDF(R)],base+'.pdf',{type:'application/pdf'});
+  jsn=new File([new Blob([JSON.stringify(R,null,2)],{type:'application/json'})],
+               base+'.json',{type:'application/json'});
+ }catch(e){pdf=null}
+ function mark(){S.pending[pi]._shared=true;
+  if(di!=null&&S.done[di])S.done[di].shared=true;save()}
+ function okFolder(){mark();
+  $('#app').innerHTML='<div class="card"><h2>Saved</h2><p class="req"><b>'+esc(base)+
+   '.pdf</b> was written into <b>'+esc(S.dest)+'</b>. OneDrive syncs it to the '+
+   'office on its own.</p></div>';
+  bar([['Back to today\u2019s batches',screenList]])}
+ function okShare(){mark();
+  $('#app').innerHTML='<div class="card"><h2>Sent</h2><p class="req"><b>'+esc(base)+
+   '.pdf</b> was shared. In the OneDrive save sheet choose '+
+   '<b>GOOS &rsaquo; Operations &rsaquo; Reports</b>.</p></div>';
+  bar([['Back to today\u2019s batches',screenList]])}
+ function download(){
+  [pdf,jsn].forEach(function(f){if(!f)return;
+   var a=document.createElement('a');a.href=URL.createObjectURL(f);
+   a.download=f.name;document.body.appendChild(a);a.click();a.remove()});
+  $('#app').innerHTML='<div class="card"><h2>Report ready</h2><p class="req"><b>'+
+   esc(base)+'.pdf</b> was saved to this tablet\u2019s Downloads instead. Open '+
+   'OneDrive and upload it to <b>GOOS &rsaquo; Operations &rsaquo; Reports</b>, or '+
+   'tap Share again.</p></div>';
+  bar([['Share again',function(){shareReport(pi,di)},'ghost'],
+       ['Back to today\u2019s batches',screenList]])}
+ function viaShare(){
+  if(pdf&&navigator.canShare&&navigator.canShare({files:[pdf,jsn]})){
+   navigator.share({files:[pdf,jsn],title:base}).then(okShare).catch(download)}
+  else download()}
+ if(DIR&&pdf)writeToDir([pdf,jsn],okFolder,viaShare);
+ else viaShare()}
+
+function reshare(i){shareReport(i,null)}
+
+/* ================= shell ================= */
+function bar(btns){
+ var el=$('#bar');el.style.display='flex';el.innerHTML='';
+ btns.forEach(function(b){var x=document.createElement('button');
+  x.innerHTML=b[0];if(b[2])x.className=b[2];x.onclick=b[1];el.appendChild(x)})}
+
+if(!S.sched)screenLoad();
+else if(S.batch){({lot:screenLot,prep:screenPrep,cook:screenCook,close:screenClose}
+ [S.batch.step]||screenList)()}
+else screenLoad();
+
+if(location.protocol.indexOf('http')===0&&navigator.serviceWorker){
+ navigator.serviceWorker.register('sw.js').catch(function(){})}
+</script></body></html>
