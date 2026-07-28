@@ -1,33 +1,102 @@
 PUTTING THE PRODUCTION APP ON THE TABLET
 =======================================
 
-This folder is the whole app. It works with no internet.
+This folder is the whole app.
 
-ROUTE 1 - straight off the tablet (simplest, no internet, no accounts)
----------------------------------------------------------------------
+READ THIS FIRST - IT DECIDES WHICH ROUTE YOU WANT
+--------------------------------------------------
+Android judges a web app by HOW IT IS OPENED, not by what is in it.
+
+If you copy this folder to the tablet and open index.html directly,
+Android treats it as a local document, and it will NOT offer to add it
+to the home screen. That is a browser rule, not something this app can
+switch on. Opening it that way also silently turns OFF the best part of
+the app: writing finished reports STRAIGHT into your OneDrive folder.
+It falls back to the share sheet instead.
+
+Serving the same folder over an https link fixes all of that at once.
+Nothing inside the app changes - only how it is opened.
+
+                                   opened as a    served over
+                                   local file      https
+  Runs the batches                  yes            yes
+  Add / install to home screen      NO             yes
+  Full screen, no address bar       no             yes
+  Reports written straight into
+    your OneDrive folder            NO             yes
+  Reports via the share sheet       yes            yes
+  Works with no signal              yes            yes
+
+ROUTE 1 - RECOMMENDED: GitHub Pages (free, permanent, no card)
+----------------------------------------------------------------
+Done once, on a laptop. Takes about ten minutes the first time and
+about one minute for every update afterwards.
+
+FIRST TIME
+  1. Make a free account at github.com if you do not have one.
+  2. Top right "+" -> New repository.
+       Repository name:  goos-tablet
+       Visibility:       Public   (see the note below - this is
+                         required on a free account)
+       Tick "Add a README file".
+     Click Create repository.
+  3. On the repository page: Add file -> Upload files.
+     Open the GOOS_Tablet folder on your laptop, select ALL SIX files
+     INSIDE it, and drag them in:
+       index.html   manifest.json   sw.js
+       icon-192.png   icon-512.png   TABLET_SETUP.txt
+     Do NOT drag the folder itself. index.html has to sit at the top
+     level of the repository or the link will show a blank page.
+     Click Commit changes.
+  4. Settings (top of the repository) -> Pages (left sidebar).
+       Source: Deploy from a branch
+       Branch: main        Folder: / (root)
+     Click Save.
+  5. Wait a minute or two, then refresh that Pages screen. It will show
+     your link:
+       https://YOURNAME.github.io/goos-tablet/
+  6. On the tablet, open that link in Chrome.
+     Chrome menu (three dots) -> "Install app" (or "Add to Home screen").
+
+Done. The tablet now has its own icon, opens full screen with no
+address bar, can write reports straight into your OneDrive folder, and
+keeps working with no signal.
+
+WHY THE REPOSITORY HAS TO BE PUBLIC
+  GitHub only publishes Pages from a public repository on a free
+  account. Publishing from a private one needs a paid plan.
+  Public means anyone who finds the address can view the app screens -
+  the empty shell. It does NOT expose any of your business data:
+  recipes, quantities, LOT numbers, customers and finished reports are
+  never in these files. The recipes arrive on the tablet as the json
+  file the operator picks, and the reports are written back out on the
+  tablet. Nothing about your business is uploaded here.
+  If you would still rather it not be public at all, Cloudflare Pages
+  gives the same result from a private source, also free.
+
+PUSHING AN UPDATE LATER
+  1. In GOOS press "Set up tablet app" to refresh this folder.
+  2. On GitHub: open the repository -> Add file -> Upload files ->
+     drag the changed files in (usually index.html and sw.js) ->
+     Commit changes. It re-publishes in about a minute.
+  3. On the tablet, open the app WITH SIGNAL once. It notices the new
+     version and swaps itself over. If it still looks old, close it
+     fully and open it again.
+  The tablet deliberately keeps its own copy so it works in the
+  commissary with no signal, which is why an update needs one online
+  open to land.
+
+ROUTE 2 - straight off the tablet, no accounts, no internet at all
+-------------------------------------------------------------------
 1. Copy this entire folder onto the tablet (USB cable, or the OneDrive
    app with the folder made available offline).
-2. On the tablet, open index.html with Chrome.
-3. Chrome menu (three dots) -> "Add to Home screen".
+2. Open index.html with Chrome.
+3. Bookmark it. There will be no home-screen icon and no install
+   option - see the table above.
 
-You get an icon on the home screen that opens the app. Because it is a
-local file it always works offline. Chrome keeps its address bar visible
-in this mode - that is a browser rule for local files, not a setting.
-
-ROUTE 2 - installed as a proper app (no address bar, full screen)
------------------------------------------------------------------
-Android will only install a web app properly if it is served over
-https. Free static hosts (Netlify Drop, GitHub Pages, Cloudflare Pages)
-will do that in a couple of minutes - drag this folder in and they give
-you a link.
-
-1. Upload this folder to any of those, get the https link.
-2. Open that link on the tablet in Chrome.
-3. Chrome offers "Install app" - accept it.
-
-Now it behaves like a normal installed app: its own icon, full screen,
-no address bar, and it keeps working with no signal because it caches
-itself the first time it loads. Only the first open needs internet.
+The app still runs every batch correctly this way. Finished reports go
+out through the share sheet (share to OneDrive, email, or whatever the
+tablet has) rather than being written into the folder for you.
 
 DAILY USE (either route)
 ------------------------
@@ -35,8 +104,9 @@ DAILY USE (either route)
    writes GOOS_PRODUCTION_<reference>.json into the tablet folder.
 2. On the tablet: open the app, tap the file box, pick that json file.
    The tablet remembers it, so this is once a day, not once a batch.
-3. Staff sign in with their PIN and work through the batches.
+3. Staff sign in and work through the batches.
 
-Finished reports are saved from the tablet. Nothing is lost if the
-tablet goes offline mid-batch - progress is stored on the tablet itself
-until the report is saved.
+Progress is stored on the tablet itself, so a flat battery or a locked
+screen mid-batch loses nothing. Tell staff not to use "clear browsing
+data" to fix a problem - that is the one thing that does wipe it.
+

@@ -642,6 +642,46 @@ function reportObject(){
     variance_pct:req?Number((((act-req)/req)*100).toFixed(2)):0,
     grade:grade(req,act)}})}}
 
+/* ---- CSV for the GOOS QA importer ------------------------------------
+   One row per ingredient. The batch columns repeat on every row: GOOS
+   reads them once for the QA Test and once per line for the Recipe Log.
+   Excel-safe (utf-8 BOM, quotes doubled) so it can be opened and checked
+   before importing. */
+var CSVCOLS=['report_format','schedule_ref','prod_date','shift','product',
+ 'lot','lot_set_at','batch_size','produce_qty','size','scale_factor',
+ 'operator','signed_off_by','started_at','saved_at',
+ 'temp_preboil_c','temp_preboil_at','temp_cookboil_c','temp_cookboil_at',
+ 'hold_started_at','hold_minutes','temp_mid_past_c','temp_mid_past_at',
+ 'temp_final_past_c','temp_final_past_at','incidents',
+ 'seq','stage','ingredient_code','unit','required_qty','actual_qty',
+ 'variance_qty','variance_pct','grade'];
+
+function csvCell(v){
+ if(v===null||v===undefined)return '';
+ var s=String(v);
+ return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+}
+function reportCSV(R){
+ var rows=[CSVCOLS.join(',')];
+ var head=[R.format||'goos.production.report v2',R.schedule_ref,R.date,R.shift,
+  R.recipe,R.lot,R.lot_set_at,String(R.produce_qty)+' x '+String(R.size),
+  R.produce_qty,R.size,R.scale_factor,R.operator,R.signed_off_by,
+  R.started_at,R.saved_at,
+  R.temp_preboil_c,R.temp_preboil_at,R.temp_cookboil_c,R.temp_cookboil_at,
+  R.hold_started_at,R.hold_minutes,R.temp_mid_past_c,R.temp_mid_past_at,
+  R.temp_final_past_c,R.temp_final_past_at,R.incidents];
+ var ings=R.ingredients||[];
+ if(!ings.length)ings=[{stage:'',code:'',uom:'',required:'',actual:'',
+                        variance_pct:'',grade:''}];
+ ings.forEach(function(g,i){
+  var req=num(g.required),act=num(g.actual);
+  rows.push(head.concat([i+1,g.stage,g.code,g.uom,g.required,g.actual,
+   (req||act)?Number((act-req).toFixed(4)):'',g.variance_pct,g.grade])
+   .map(csvCell).join(','));
+ });
+ return '\ufeff'+rows.join('\r\n')+'\r\n';
+}
+
 function reportPDF(R){
  var d=newDoc();d.newPage();
 
@@ -742,8 +782,8 @@ function shareReport(pi,di){
  var R=S.pending[pi],base=baseName(R),pdf=null,jsn=null;
  try{
   pdf=new File([reportPDF(R)],base+'.pdf',{type:'application/pdf'});
-  jsn=new File([new Blob([JSON.stringify(R,null,2)],{type:'application/json'})],
-               base+'.json',{type:'application/json'});
+  jsn=new File([new Blob([reportCSV(R)],{type:'text/csv'})],
+               base+'.csv',{type:'text/csv'});
  }catch(e){pdf=null}
  function mark(){S.pending[pi]._shared=true;
   if(di!=null&&S.done[di])S.done[di].shared=true;save()}
