@@ -98,6 +98,14 @@ li{margin-bottom:10px;font-size:18px}
 <header><b>GOOS &middot; Production</b><small id="hdr"></small></header>
 <main id="app"></main>
 <div class="bar" id="bar" style="display:none"></div>
+<div id="alarmwrap"><div id="alarmbox">
+ <div class="kicker" id="alarmkick"></div>
+ <h2 id="alarmtitle"></h2>
+ <div class="big" id="alarmbig"></div>
+ <p id="alarmmsg"></p>
+ <button id="alarmstop">Stop alarm</button>
+ <div id="alarmquiet"></div>
+</div></div>
 <script>
 var K='goos_tab_v5';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
@@ -897,6 +905,7 @@ function startAlarm(kind,title,msg,big){
  $('#alarmquiet').textContent=audioReady()?''
   :'Sound is off because the app was reopened after the hold started.';
  $('#alarmwrap').className='on';
+ bindStop();
  armAudio();burst(kind);
  /* Keep sounding until somebody stops it - a missed pasteurization gate
     matters more than a quiet commissary. It goes quiet on its own after two
@@ -911,12 +920,22 @@ function startAlarm(kind,title,msg,big){
   burst(ALARM.kind)
  },every);
 }
+document.addEventListener('keydown',function(e){
+ if(e.key==='Escape'||e.key==='Enter')stopAlarm()});
+if($('#alarmwrap'))$('#alarmwrap').onclick=function(e){
+ if(e.target&&e.target.id==='alarmwrap')stopAlarm()};
+
 function stopAlarm(quiet){
  if(ALARM.t){clearInterval(ALARM.t);ALARM.t=null}
  ALARM.kind=null;
  if(!quiet){var w=$('#alarmwrap');if(w)w.className=''}
 }
-if($('#alarmstop'))$('#alarmstop').onclick=function(){stopAlarm()};
+/* Bound here AND on every open. The markup now sits above this script so the
+   load-time bind works, but a food-safety alarm should not depend on document
+   order alone - the earlier build had the popup below the script, so this
+   button silently had no handler and the only way out was killing the app. */
+function bindStop(){var b=$('#alarmstop');if(b)b.onclick=function(){stopAlarm()}}
+bindStop();
 
 /* ================= shell ================= */
 function bar(btns){
@@ -932,12 +951,4 @@ else screenLoad();
 if(location.protocol.indexOf('http')===0&&navigator.serviceWorker){
  navigator.serviceWorker.register('sw.js').catch(function(){})}
 </script>
-<div id="alarmwrap"><div id="alarmbox">
- <div class="kicker" id="alarmkick"></div>
- <h2 id="alarmtitle"></h2>
- <div class="big" id="alarmbig"></div>
- <p id="alarmmsg"></p>
- <button id="alarmstop">Stop alarm</button>
- <div id="alarmquiet"></div>
-</div></div>
 </body></html>
