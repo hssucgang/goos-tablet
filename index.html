@@ -77,6 +77,23 @@ button:disabled{opacity:.45}
 .bar>*{flex:1;margin:0}
 .err{color:var(--fail);font-size:17px;margin-top:10px;font-weight:700}
 li{margin-bottom:10px;font-size:18px}
+
+/* ---- hold-timer alarm ---- */
+#alarmwrap{position:fixed;inset:0;z-index:50;display:none;
+ background:rgba(31,42,74,.93);align-items:center;justify-content:center;padding:20px}
+#alarmwrap.on{display:flex}
+#alarmbox{background:var(--cream);border-radius:22px;max-width:520px;width:100%;
+ padding:26px 24px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+#alarmbox .kicker{font-size:15px;font-weight:800;letter-spacing:3px;color:var(--warn)}
+#alarmbox.end .kicker{color:var(--fail)}
+#alarmbox h2{margin:8px 0 6px;font-size:34px;line-height:1.1;color:var(--navy)}
+#alarmbox p{margin:0 0 18px;font-size:19px;color:var(--navy)}
+#alarmbox .big{font-size:54px;font-weight:900;letter-spacing:2px;color:var(--navy);
+ margin:4px 0 10px}
+#alarmstop{width:100%;padding:22px;font-size:24px;font-weight:800;border:none;
+ border-radius:16px;background:var(--navy);color:#fff;cursor:pointer}
+#alarmbox.end #alarmstop{background:var(--fail)}
+#alarmquiet{font-size:14px;color:var(--warn);margin-top:12px;min-height:18px}
 </style></head><body>
 <header><b>GOOS &middot; Production</b><small id="hdr"></small></header>
 <main id="app"></main>
@@ -425,16 +442,32 @@ function screenCook(){
      pad(Math.floor(Math.max(0,L-Math.floor(total/2))/60))+':'+
      pad(Math.max(0,L-Math.floor(total/2))%60)+' to go.');
   if(w4)w4.textContent=timeUp()?'Record the final reading.':'Unlocks at 00:00.';
+  /* The latches live on the SAVED batch, so re-rendering this screen - which
+     draw() does at both marks - cannot ring the same alarm twice, and neither
+     can reopening the app later. */
+  if(b.t0&&!b.almHalf&&halfDone()&&!timeUp()){
+   b.almHalf=1;save();
+   startAlarm('half','Half way through the hold',
+    'Take the Mid-Pasteurization reading now. It should be 80-85 \u00B0C.',
+    pad(Math.floor(total/120))+':00 left');}
+  if(b.t0&&!b.almEnd&&timeUp()){
+   b.almEnd=1;save();
+   startAlarm('end','The '+mins+'-minute hold is done',
+    'Take the Final Pasteurization reading now. It should be 85-90 \u00B0C.',
+    '00:00');}
   if((b.t3==null&&halfDone()&&w3)||(b.t4==null&&timeUp()&&w4)){
    if(tick){clearInterval(tick);tick=null}screenCook();return}
   if(timeUp()&&tick){clearInterval(tick);tick=null}}
 
  if($('#go'))$('#go').onclick=function(){
-  b.t0=Date.now();b.t0_at=nowISO();save();screenCook()};
+  armAudio();
+  b.t0=Date.now();b.t0_at=nowISO();b.almHalf=0;b.almEnd=0;save();screenCook()};
 
  draw();if(!gated&&b.t0&&!tick)tick=setInterval(draw,1000);
+ document.addEventListener('visibilitychange',function(){
+  if(!document.hidden&&$('#clock'))draw()});
 
- bar([['Back',function(){if(tick){clearInterval(tick);tick=null}
+ bar([['Back',function(){if(tick){clearInterval(tick);tick=null}stopAlarm();
    S.batch.step='prep';save();screenPrep()},'ghost'],
   ['Finish batch',function(){
    if(b.t1==null||b.t2==null){$('#e').textContent=
@@ -816,6 +849,75 @@ function shareReport(pi,di){
 
 function reshare(i){shareReport(i,null)}
 
+/* ================= hold-timer alarm =================
+   Sound is generated with the Web Audio API rather than an audio file: there
+   is no asset to host, nothing to load, and it works with no signal.
+
+   Browsers refuse to make noise until the user has interacted with the page,
+   so the audio is ARMED on the same tap that starts the hold. If the page is
+   reloaded mid-hold the tap is gone and the beeps stay silent - the popup
+   still appears, which is why the alarm is never sound-only. */
+var AC=null,ALARM={t:null,until:0,kind:null};
+
+function armAudio(){
+ try{
+  if(!AC){var C=window.AudioContext||window.webkitAudioContext;if(C)AC=new C()}
+  if(AC&&AC.state==='suspended')AC.resume()
+ }catch(e){AC=null}
+}
+function audioReady(){return !!(AC&&AC.state==='running')}
+
+function tone(freq,start,dur,vol){
+ if(!AC)return;
+ try{
+  var o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime+start;
+  o.type='square';o.frequency.value=freq;
+  g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(vol,t+0.02);
+  g.gain.setValueAtTime(vol,t+dur-0.05);
+  g.gain.linearRampToValueAtTime(0,t+dur);
+  o.connect(g);g.connect(AC.destination);o.start(t);o.stop(t+dur+0.02)
+ }catch(e){}
+}
+/* half time: three short pips. end of hold: a longer, lower, insistent blast. */
+function burst(kind){
+ if(kind==='half'){tone(1050,0,0.16,0.32);tone(1050,0.26,0.16,0.32);tone(1050,0.52,0.16,0.32)}
+ else{tone(760,0,0.75,0.4);tone(600,0.85,0.75,0.4);tone(760,1.7,1.2,0.4)}
+}
+
+function startAlarm(kind,title,msg,big){
+ stopAlarm(true);
+ ALARM.kind=kind;
+ var box=$('#alarmbox');
+ box.className=(kind==='end'?'end':'');
+ $('#alarmkick').textContent=(kind==='end'?'HOLD COMPLETE':'HALF WAY');
+ $('#alarmtitle').textContent=title;
+ $('#alarmbig').textContent=big||'';
+ $('#alarmmsg').textContent=msg;
+ $('#alarmquiet').textContent=audioReady()?''
+  :'Sound is off because the app was reopened after the hold started.';
+ $('#alarmwrap').className='on';
+ armAudio();burst(kind);
+ /* Keep sounding until somebody stops it - a missed pasteurization gate
+    matters more than a quiet commissary. It goes quiet on its own after two
+    minutes so a tablet left alone overnight does not ring forever, but the
+    popup STAYS so the reading is still acknowledged. */
+ var every=(kind==='end'?3200:5000);
+ ALARM.until=Date.now()+120000;
+ ALARM.t=setInterval(function(){
+  if(Date.now()>ALARM.until){clearInterval(ALARM.t);ALARM.t=null;
+   $('#alarmquiet').textContent='Alarm went quiet on its own. Still waiting for you.';
+   return}
+  burst(ALARM.kind)
+ },every);
+}
+function stopAlarm(quiet){
+ if(ALARM.t){clearInterval(ALARM.t);ALARM.t=null}
+ ALARM.kind=null;
+ if(!quiet){var w=$('#alarmwrap');if(w)w.className=''}
+}
+if($('#alarmstop'))$('#alarmstop').onclick=function(){stopAlarm()};
+
 /* ================= shell ================= */
 function bar(btns){
  var el=$('#bar');el.style.display='flex';el.innerHTML='';
@@ -829,4 +931,13 @@ else screenLoad();
 
 if(location.protocol.indexOf('http')===0&&navigator.serviceWorker){
  navigator.serviceWorker.register('sw.js').catch(function(){})}
-</script></body></html>
+</script>
+<div id="alarmwrap"><div id="alarmbox">
+ <div class="kicker" id="alarmkick"></div>
+ <h2 id="alarmtitle"></h2>
+ <div class="big" id="alarmbig"></div>
+ <p id="alarmmsg"></p>
+ <button id="alarmstop">Stop alarm</button>
+ <div id="alarmquiet"></div>
+</div></div>
+</body></html>
