@@ -94,10 +94,37 @@ li{margin-bottom:10px;font-size:18px}
  border-radius:16px;background:var(--navy);color:#fff;cursor:pointer}
 #alarmbox.end #alarmstop{background:var(--fail)}
 #alarmquiet{font-size:14px;color:var(--warn);margin-top:12px;min-height:18px}
+
+/* ---- pre-mix procedure popup ---- */
+#procwrap{position:fixed;inset:0;z-index:60;display:none;
+ background:rgba(31,42,74,.94);align-items:center;justify-content:center;padding:16px}
+#procwrap.on{display:flex}
+#procbox{background:var(--cream);border-radius:22px;max-width:660px;width:100%;
+ max-height:92vh;overflow:auto;padding:24px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+#procbox .kicker{font-size:15px;font-weight:800;letter-spacing:3px;color:var(--warn)}
+#procbox h2{margin:6px 0 4px;font-size:30px;line-height:1.15;color:var(--navy)}
+#procbox .sub{font-size:17px;color:var(--navy);margin-bottom:14px}
+#procbox ol{margin:0;padding:0;list-style:none;counter-reset:pm}
+#procbox li{counter-increment:pm;display:flex;gap:14px;align-items:flex-start;
+ background:#fff;border:1px solid var(--line);border-radius:14px;
+ padding:16px 16px;margin-bottom:10px}
+#procbox li::before{content:counter(pm);flex:0 0 46px;height:46px;border-radius:12px;
+ background:var(--navy);color:#fff;font-size:24px;font-weight:800;
+ display:flex;align-items:center;justify-content:center}
+#procbox li span{font-size:23px;line-height:1.4;color:var(--navy);font-weight:600}
+#procdone{width:100%;margin-top:6px;padding:24px;font-size:25px;font-weight:800;
+ border:none;border-radius:16px;background:var(--ok);color:#fff;cursor:pointer}
 </style></head><body>
 <header><b>GOOS &middot; Production</b><small id="hdr"></small></header>
 <main id="app"></main>
 <div class="bar" id="bar" style="display:none"></div>
+<div id="procwrap"><div id="procbox">
+ <div class="kicker" id="prockick"></div>
+ <h2 id="proctitle"></h2>
+ <div class="sub" id="procsub"></div>
+ <ol id="proclist"></ol>
+ <button id="procdone"></button>
+</div></div>
 <div id="alarmwrap"><div id="alarmbox">
  <div class="kicker" id="alarmkick"></div>
  <h2 id="alarmtitle"></h2>
@@ -394,8 +421,12 @@ function screenCook(){
  function left(){return b.t0?Math.max(0,total-Math.floor((Date.now()-b.t0)/1000)):total}
  function halfDone(){return b.t0&&left()<=Math.floor(total/2)}
  function timeUp(){return b.t0&&left()===0}
+ var pm1=premix(r,1),pm2=premix(r,2);
  function openStep(){
   if(b.t1==null)return 1;
+  /* the 1st Pre-Mix happens BETWEEN the two readings, so the second one
+     stays shut until the staff have confirmed those steps */
+  if(pm1.length&&!b.pm1ok)return 0;
   if(b.t2==null)return 2;
   if(b.t3==null)return halfDone()?3:0;
   if(b.t4==null)return timeUp()?4:0;
@@ -421,7 +452,7 @@ function screenCook(){
    '<div class="tn">'+st.n+'</div><div><div class="ttitle">'+st.title+'</div>'+
    '<div class="trule">'+st.rule+'</div></div></div>'+body+'</div>'}
 
- var gated=(b.t2==null);
+ var gated=(b.t2==null)||(pm2.length&&!b.pm2ok);
  var timerHTML='<div class="tbox'+(gated?' dark':'')+'">'+
    '<div class="timer" id="clock">--:--</div>'+
    '<div class="tnote" id="tnote"></div></div>'+
@@ -433,10 +464,7 @@ function screenCook(){
   '<div class="req">'+esc(rName(r))+' &middot; LOT '+esc(b.lot)+'</div>'+
   '<p class="req">Four readings, in order. Each one is final once recorded.</p>'+
   card(TSTEPS[0])+card(TSTEPS[1])+timerHTML+card(TSTEPS[2])+card(TSTEPS[3])+
-  '<div class="err" id="e"></div></div>'+
-  '<div class="card"><h3>Procedure</h3><ol>'+
-  (steps.map(function(p){return'<li>'+esc(p)+'</li>'}).join('')||
-   '<li class="req">No procedure recorded.</li>')+'</ol></div>';
+  '<div class="err" id="e"></div></div>';
 
  function draw(){
   var c=$('#clock');if(!c){if(tick){clearInterval(tick);tick=null}return}
@@ -499,7 +527,17 @@ function recTemp(n){
   er.textContent=t+' \u00B0C is above the '+st.max+' \u00B0C limit. '+
    'Let it settle and read again, or note it as an incident.';el.value='';return}
  if(!confirm('Record '+t+' \u00B0C for '+st.title+'?\n\nThis cannot be changed.'))return;
- b[st.key]=t;b[st.key+'_at']=nowISO();save();screenCook()}
+ b[st.key]=t;b[st.key+'_at']=nowISO();save();
+ var r=recipes()[S.batch.i];
+ if(n===1){
+  var p1=premix(r,1);
+  if(p1.length&&!b.pm1ok){showPremix(1,p1,function(){b.pm1ok=1;save();screenCook()});return}
+ }
+ if(n===2){
+  var p2=premix(r,2);
+  if(p2.length&&!b.pm2ok){showPremix(2,p2,function(){b.pm2ok=1;save();screenCook()});return}
+ }
+ screenCook()}
 
 /* ================= 6. INCIDENTS + SIGN-OFF ================= */
 function screenClose(){var b=S.batch,r=recipes()[b.i];
@@ -936,6 +974,30 @@ function stopAlarm(quiet){
    button silently had no handler and the only way out was killing the app. */
 function bindStop(){var b=$('#alarmstop');if(b)b.onclick=function(){stopAlarm()}}
 bindStop();
+
+
+/* ================= pre-mix procedures =================
+   Steps the office assigned to a Pre-Mix in the Windows recipe. They are shown
+   at the moment they are actually done - after the first temperature, and
+   after the second - instead of as a list at the bottom that nobody reads
+   while their hands are full. Sized to be read at arm's length. */
+function premix(r,n){
+ var p=pick(r,['premix'+n,'preMix'+n,'pre_mix'+n],[]);
+ if(typeof p==='string')p=p.split('\n');
+ return (p||[]).map(function(x){return typeof x==='string'?x:pick(x,['text','step'],'')})
+  .filter(function(x){return String(x).trim()})}
+
+function showPremix(n,steps,after){
+ $('#prockick').textContent=(n===1?'AFTER THE FIRST READING':'AFTER THE SECOND READING');
+ $('#proctitle').textContent=(n===1?'1st Pre-Mix':'2nd Pre-Mix');
+ $('#procsub').textContent='Do these now, then confirm.';
+ $('#proclist').innerHTML=steps.map(function(s){
+  return '<li><span>'+esc(s)+'</span></li>'}).join('');
+ var btn=$('#procdone');
+ btn.textContent='All '+steps.length+' done';
+ btn.onclick=function(){$('#procwrap').className='';if(after)after()};
+ $('#procwrap').className='on';
+}
 
 /* ================= shell ================= */
 function bar(btns){
