@@ -478,7 +478,53 @@ function newSched(){
    signal. */
 var OV={tries:0,until:0};
 
-function ovCfg(){var s=S.sched||{};return s.override||null}
+/* The key can live on the batch's own schedule OR be recovered from a newer
+   schedule file. That matters because of a real chicken-and-egg: a batch
+   opened from a pre-2.46 schedule has no key, and loading the new schedule
+   that HAS one is itself an override. So the key is fetched separately, the
+   open batch is left exactly as it is, and only then can it be voided. */
+function ovCfg(){
+ var s=S.sched||{};
+ return s.override||S.ovkey||null}
+
+function ovTakeKey(j,cb){
+ var k=j&&j.override;
+ if(!k||!k.hash||!k.salt){cb(false,'That schedule file also has no override '+
+  'key. Send it again from GOOS 2.46 or later.');return}
+ S.ovkey=k;save();cb(true,'')}
+
+/* Route 1: the remembered folder. Reads the newest schedule sitting there and
+   takes ONLY its key - the recipes are not touched, so an open batch is not
+   disturbed by going looking. */
+function ovKeyFromFolder(){
+ var e=$('#ove');if(e)e.textContent='Looking in the tablet folder\u2026';
+ if(!DIR){if(e)e.textContent='No folder is remembered on this tablet - use '+
+  'the file button instead.';return}
+ loadNewest(function(j){
+  if(!j){if(e)e.textContent='No schedule file in the tablet folder.';return}
+  ovTakeKey(j,function(ok,msg){
+   if(!ok){if(e)e.textContent=msg;return}
+   screenOverride();
+   if($('#ove'))$('#ove').textContent='Override key loaded. Enter the reason '+
+    'and passcode.'})})}
+
+/* Route 2: pick the file. This is the one that works on a tablet with no
+   folder picker. */
+function ovKeyFromFile(ev){
+ var f=ev&&ev.target&&ev.target.files&&ev.target.files[0];
+ if(!f)return;
+ var e=$('#ove');if(e)e.textContent='Reading\u2026';
+ var rd=new FileReader();
+ rd.onload=function(){
+  var j=null;try{j=JSON.parse(rd.result)}catch(x){}
+  if(!j){if($('#ove'))$('#ove').textContent='That file could not be read.';return}
+  ovTakeKey(j,function(ok,msg){
+   if(!ok){if($('#ove'))$('#ove').textContent=msg;return}
+   screenOverride();
+   if($('#ove'))$('#ove').textContent='Override key loaded. Enter the reason '+
+    'and passcode.'})};
+ rd.onerror=function(){if($('#ove'))$('#ove').textContent='That file could not be read.'};
+ rd.readAsText(f)}
 function ovLabel(){var c=ovCfg();return c&&c.label?c.label:'the CEO password'}
 
 function hex(buf){var b=new Uint8Array(buf),o='';
@@ -532,8 +578,26 @@ function screenOverride(){
   '<textarea id="ovr" rows="3" placeholder="e.g. Recipe corrected in GOOS - sugar '+
   'was 4.2 kg, should be 3.6 kg"></textarea>'+
   '<label>Your name</label><input id="ovn" autocomplete="off" value="'+esc(S.ovwho||'')+'">'+
-  '<label>'+esc(ovLabel().charAt(0).toUpperCase()+ovLabel().slice(1))+'</label>'+
-  '<input id="ovp" type="password" autocomplete="off" inputmode="text">'+
+  (ovCfg()
+   ? '<label>'+esc(ovLabel().charAt(0).toUpperCase()+ovLabel().slice(1))+'</label>'+
+     '<input id="ovp" type="password" autocomplete="off" inputmode="text">'
+   : '<div class="ovopt"><b>This batch has no override key</b><br>'+
+     '<span class="req">It was opened from a schedule sent by an older GOOS. '+
+     'Send today\u2019s schedule again from GOOS 2.46 or later, then load the '+
+     'key from it \u2014 the open batch is left exactly as it is.</span>'+
+     '<button class="ghost" style="margin-top:10px" '+
+     'onclick="ovKeyFromFolder()">Load the key from the tablet folder</button>'+
+     '<label style="margin-top:8px">\u2026or pick the schedule file</label>'+
+     '<input type="file" accept=".json,application/json" onchange="ovKeyFromFile(event)">'+
+     '<p class="req" style="margin-top:12px">If no newer schedule can be reached '+
+     'at all, this batch can still be stopped without the passcode. It is '+
+     'recorded as <b>unverified</b> on the report, and it can only VOID \u2014 '+
+     'it cannot change a single recorded weight or temperature.</p>'+
+     '<label>To do that, type <b>VOID '+esc((S.batch&&S.batch.lot)||'BATCH')+
+     '</b></label>'+
+     '<input id="ovbg" autocomplete="off" placeholder="VOID '+
+     esc((S.batch&&S.batch.lot)||'BATCH')+'">'+
+     '</div>')+
   '<div class="err" id="ove"></div></div>';
  bar([['Cancel',function(){if(S.batch)resumeBatch();else screenList()},'ghost'],
       ['Authorise override',ovSubmit]])}
@@ -548,6 +612,19 @@ function ovSubmit(){
  if(why.length<10){$('#ove').textContent=
   'Write the reason - it goes on the batch record.';return}
  if(!who){$('#ove').textContent='Enter your name.';return}
+ if(!ovCfg()){
+  /* Break glass. Deliberately narrow: it can only ABANDON a batch, never
+     alter one, every field is still required, and the report says plainly
+     that nobody authorised it. Better than a stuck tablet and staff
+     inventing a LOT on paper. */
+  var want='VOID '+((S.batch&&S.batch.lot)||'BATCH'),
+      got=(($('#ovbg')||{}).value||'').trim().toUpperCase();
+  if(got!==want.toUpperCase()){$('#ove').textContent=
+   'Load the override key above, or type '+want+' to stop this batch without it.';
+   return}
+  if(!confirm('Stop this batch WITHOUT the passcode?\n\nThe report will record '+
+   'that the override was not verified.'))return;
+  S.ovwho=who;save();ovApply(how,why,who,true);return}
  if(!pass){$('#ove').textContent='Enter '+ovLabel()+'.';return}
  $('#ove').textContent='Checking\u2026';
  ovCheck(pass,function(ok,msg){
@@ -559,8 +636,9 @@ function ovSubmit(){
    return}
   OV.tries=0;S.ovwho=who;save();ovApply(how,why,who)})}
 
-function ovApply(how,why,who){
+function ovApply(how,why,who,unverified){
  var b=S.batch,rec={at:nowISO(),by:who,reason:why,action:how,
+  verified:!unverified,
   lot:b?b.lot:'',recipe:b&&recipes()[b.i]?rName(recipes()[b.i]):'',
   schedule_ref:pick(S.sched||{},['reference','ref'],'')};
  S.audit=(S.audit||[]).concat([rec]);
@@ -571,7 +649,10 @@ function ovApply(how,why,who){
   var R=reportObject();
   R.format='goos.production.report v2 VOID';
   R.voided=true;R.void_reason=why;R.void_by=who;R.void_at=rec.at;
-  R.incidents='VOIDED BY SUPERVISOR OVERRIDE - '+why+
+  R.void_verified=unverified?'no':'yes';
+  R.incidents='VOIDED BY SUPERVISOR OVERRIDE'+
+   (unverified?' (NOT VERIFIED - no passcode was available on the tablet)':'')+
+   ' - '+why+
    (R.incidents&&R.incidents!=='None'?' | earlier note: '+R.incidents:'');
   S.pending.push(R);
   if(i!=null)delete S.done[i];
@@ -1018,7 +1099,7 @@ var CSVCOLS=['report_format','schedule_ref','prod_date','shift','product',
  'temp_final_past_c','temp_final_past_at','incidents',
  'seq','stage','ingredient_code','unit','required_qty','actual_qty',
  'variance_qty','variance_pct','grade',
- 'voided','void_reason','void_by','void_at'];
+ 'voided','void_reason','void_by','void_at','void_verified'];
 
 function csvCell(v){
  if(v===null||v===undefined)return '';
@@ -1041,7 +1122,8 @@ function reportCSV(R){
   var req=num(g.required),act=num(g.actual);
   rows.push(head.concat([i+1,g.stage,g.code,g.uom,g.required,g.actual,
    (req||act)?Number((act-req).toFixed(4)):'',g.variance_pct,g.grade,
-   R.voided?'true':'',R.void_reason||'',R.void_by||'',R.void_at||''])
+   R.voided?'true':'',R.void_reason||'',R.void_by||'',R.void_at||'',
+   R.void_verified||''])
    .map(csvCell).join(','));
  });
  return '\ufeff'+rows.join('\r\n')+'\r\n';
