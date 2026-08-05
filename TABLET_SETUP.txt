@@ -105,11 +105,16 @@ DAILY USE (either route)
    folder - named for the day the work is FOR. Nothing else is written
    there, and the previous day's schedule moves into "Past schedules".
 2. On the tablet: just open the app.
-   - Served over https on a browser with the folder picker: the folder
-     is chosen ONCE, on the first morning. After that the app finds the
-     newest schedule in it by itself. Some browsers ask for the folder
-     permission again after a restart - that is one tap on the single
-     button on screen, then it loads.
+   - Served over https on a browser with the folder picker: TWO folders
+     are chosen ONCE, on the first morning - the folder GOOS sends
+     schedules to, and the folder finished reports go into. They can be
+     two different OneDrive folders. The tablet remembers both, and
+     "Folders" on the batch list changes them later. After that the app
+     finds the newest schedule by itself. Some browsers ask for the
+     folder permission again after a restart - that is one tap on the
+     single button on screen, and it re-grants both at once.
+     If only the schedules folder is chosen, reports go into a
+     "Finished Production" subfolder of it, as before.
    - On a browser with no folder picker (Android Chrome today): tap the
      file box and pick PROD_TODAY_<today>.json. It is the only file
      there, so there is nothing to hunt through, and it is once a day.
