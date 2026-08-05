@@ -16,6 +16,10 @@ h2{margin:0 0 6px;font-size:24px}h3{margin:18px 0 8px;font-size:17px;text-transf
 label{display:block;font-size:16px;font-weight:600;color:#55607A;margin:12px 0 5px}
 input,select,textarea{width:100%;padding:16px;font-size:22px;border:2px solid var(--line);border-radius:10px;background:#fff;color:var(--navy)}
 input:focus,textarea:focus{outline:4px solid var(--peri);outline-offset:1px}
+.ovopt{display:block;border:2px solid var(--line);border-radius:12px;padding:14px;
+ margin-top:10px;font-size:19px;background:#fff}
+.ovopt input{width:auto;margin-right:8px;transform:scale(1.4)}
+.ovopt .req{font-size:16px;margin:4px 0 0}
 input:disabled{background:#E5E0D6;color:#6E6A5E;border-color:#CCC4B2}
 button{font:700 19px system-ui;padding:17px 18px;border:0;border-radius:12px;background:var(--navy);color:#fff;width:100%;margin-top:12px}
 button.ghost{background:#fff;color:var(--navy);border:2px solid var(--navy)}
@@ -447,7 +451,8 @@ function screenList(){
    :'share sheet \u2192 OneDrive')+'</div></div>'+
   '<div class="card">'+(rows||'<p class="req">No recipes in this schedule.</p>')+'</div>'+
   '<div class="card"><button class="ghost" onclick="newSched()">Load another schedule</button>'+
-  '<button class="ghost" onclick="screenLoad()">Change the reports folder</button></div>';
+  '<button class="ghost" onclick="screenLoad()">Change the reports folder</button>'+
+  '<button class="ghost" onclick="screenOverride()">Supervisor override</button></div>';
  $('#bar').style.display='none'}
 
 function newSched(){
@@ -455,6 +460,139 @@ function newSched(){
  if(u&&!confirm(u+' report(s) have not reached OneDrive yet. Load a new schedule anyway?'))return;
  if(!confirm('Load a different schedule?'))return;
  S.sched=null;S.ops='';S.done={};S.batch=null;save();pendingSched=null;screenLoad()}
+
+/* ================= SUPERVISOR OVERRIDE =================
+   Once a LOT is locked the batch is deliberately one-way: nothing recorded
+   against a LOT can be edited, because that is the whole point of a
+   traceable batch record. But a schedule sometimes has to CHANGE after work
+   has started - a recipe corrected in GOOS, the wrong recipe opened, a LOT
+   typed wrong. Without a way out the tablet is stuck until the shift ends.
+
+   So the way out is not an edit. It is a VOID: the batch is abandoned whole,
+   under a named person, with a written reason, and the abandoned batch still
+   produces a report so the paper trail shows what was weighed and why it was
+   stopped. Nothing is quietly rewritten.
+
+   The passcode is checked offline against a PBKDF2 verifier GOOS puts in the
+   schedule file - the tablet never holds a passcode, and this works with no
+   signal. */
+var OV={tries:0,until:0};
+
+function ovCfg(){var s=S.sched||{};return s.override||null}
+function ovLabel(){var c=ovCfg();return c&&c.label?c.label:'the CEO password'}
+
+function hex(buf){var b=new Uint8Array(buf),o='';
+ for(var i=0;i<b.length;i++)o+=('0'+b[i].toString(16)).slice(-2);return o}
+
+/* Same PBKDF2-HMAC-SHA256 GOOS uses for passwords, so one passcode works in
+   both places. Needs a secure context, which the hosted app has. */
+function ovCheck(pass,cb){
+ var c=ovCfg();
+ if(!c||!c.hash||!c.salt){cb(false,'This schedule was sent by an older GOOS, '+
+  'so it carries no override key. Send the schedule again from GOOS 2.46 or '+
+  'later.');return}
+ if(!(window.crypto&&crypto.subtle&&window.TextEncoder)){
+  cb(false,'This browser cannot check the passcode. Open the app over https.');
+  return}
+ var salt=new Uint8Array((c.salt.match(/../g)||[]).map(function(h){
+  return parseInt(h,16)}));
+ crypto.subtle.importKey('raw',new TextEncoder().encode(pass),{name:'PBKDF2'},
+  false,['deriveBits']).then(function(k){
+  return crypto.subtle.deriveBits({name:'PBKDF2',salt:salt,
+   iterations:c.iter||100000,hash:'SHA-256'},k,256)}).then(function(bits){
+  cb(hex(bits)===String(c.hash).toLowerCase(),'')}).catch(function(){
+  cb(false,'The passcode could not be checked on this device.')})}
+
+function ovLocked(){
+ var left=Math.ceil((OV.until-Date.now())/1000);
+ return left>0?left:0}
+
+function screenOverride(){
+ var b=S.batch,r=b?recipes()[b.i]:null;
+ $('#hdr').innerHTML='Supervisor override';
+ var what=b
+  ? '<p class="req">Open batch: <b>'+esc(rName(r))+'</b>'+
+    (b.lot?' &middot; LOT <b>'+esc(b.lot)+'</b>':'')+'</p>'
+  : '<p class="req">No batch is open.</p>';
+ var opts='';
+ if(b)opts+='<label class="ovopt"><input type="radio" name="ovw" value="redo" checked> '+
+  '<b>Void this batch and start it again</b><br><span class="req">Same recipe, '+
+  'a fresh LOT. Everything weighed so far is written to a VOID report first.</span></label>';
+ if(b)opts+='<label class="ovopt"><input type="radio" name="ovw" value="back"'+
+  (b?'':' checked')+'> <b>Void this batch and go back to the schedule</b><br>'+
+  '<span class="req">Use this when the wrong recipe was opened.</span></label>';
+ opts+='<label class="ovopt"><input type="radio" name="ovw" value="reload"'+
+  (b?'':' checked')+'> <b>Reload the whole schedule from GOOS</b><br>'+
+  '<span class="req">Use this when the recipe itself was corrected in GOOS and '+
+  'sent again. Any open batch is voided and every recipe is unlocked.</span></label>';
+ $('#app').innerHTML='<div class="card"><h2>Supervisor override</h2>'+what+
+  '<p class="req">A locked batch is never edited. It is voided whole, under '+
+  'your name, with the reason kept on the record.</p>'+opts+
+  '<label style="margin-top:12px">Reason for the override <b>(required)</b></label>'+
+  '<textarea id="ovr" rows="3" placeholder="e.g. Recipe corrected in GOOS - sugar '+
+  'was 4.2 kg, should be 3.6 kg"></textarea>'+
+  '<label>Your name</label><input id="ovn" autocomplete="off" value="'+esc(S.ovwho||'')+'">'+
+  '<label>'+esc(ovLabel().charAt(0).toUpperCase()+ovLabel().slice(1))+'</label>'+
+  '<input id="ovp" type="password" autocomplete="off" inputmode="text">'+
+  '<div class="err" id="ove"></div></div>';
+ bar([['Cancel',function(){if(S.batch)resumeBatch();else screenList()},'ghost'],
+      ['Authorise override',ovSubmit]])}
+
+function ovSubmit(){
+ var wait=ovLocked();
+ if(wait){$('#ove').textContent='Too many wrong passcodes. Wait '+wait+
+  ' seconds.';return}
+ var how=(document.querySelector('input[name="ovw"]:checked')||{}).value||'back';
+ var why=($('#ovr').value||'').trim(),who=($('#ovn').value||'').trim(),
+     pass=$('#ovp').value||'';
+ if(why.length<10){$('#ove').textContent=
+  'Write the reason - it goes on the batch record.';return}
+ if(!who){$('#ove').textContent='Enter your name.';return}
+ if(!pass){$('#ove').textContent='Enter '+ovLabel()+'.';return}
+ $('#ove').textContent='Checking\u2026';
+ ovCheck(pass,function(ok,msg){
+  if(!ok){
+   OV.tries++;
+   if(OV.tries>=5){OV.until=Date.now()+300000;OV.tries=0;
+    $('#ove').textContent='Too many wrong passcodes. Locked for 5 minutes.';return}
+   $('#ove').textContent=msg||('Wrong '+ovLabel()+'. '+(5-OV.tries)+' left.');
+   return}
+  OV.tries=0;S.ovwho=who;save();ovApply(how,why,who)})}
+
+function ovApply(how,why,who){
+ var b=S.batch,rec={at:nowISO(),by:who,reason:why,action:how,
+  lot:b?b.lot:'',recipe:b&&recipes()[b.i]?rName(recipes()[b.i]):'',
+  schedule_ref:pick(S.sched||{},['reference','ref'],'')};
+ S.audit=(S.audit||[]).concat([rec]);
+ var i=b?b.i:null;
+ if(b&&b.lot_at){
+  /* Something was recorded under this LOT, so the LOT must not simply
+     vanish - it leaves as a VOID report. */
+  var R=reportObject();
+  R.format='goos.production.report v2 VOID';
+  R.voided=true;R.void_reason=why;R.void_by=who;R.void_at=rec.at;
+  R.incidents='VOIDED BY SUPERVISOR OVERRIDE - '+why+
+   (R.incidents&&R.incidents!=='None'?' | earlier note: '+R.incidents:'');
+  S.pending.push(R);
+  if(i!=null)delete S.done[i];
+  S.batch=null;save();
+  ovAfter(how,i,S.pending.length-1);
+  return}
+ S.batch=null;save();ovAfter(how,i,null)}
+
+function ovAfter(how,i,pi){
+ function go(){
+  if(how==='reload'){
+   S.done={};S.batch=null;save();
+   if(DIR){autoLoad(true);return}
+   S.sched=null;save();pendingSched=null;screenLoad();return}
+  if(how==='redo'&&i!=null){start(i);return}
+  screenList()}
+ if(pi==null){go();return}
+ /* The void report is saved the same way a finished one is, so it reaches
+    OneDrive by the same route the staff already know. */
+ ovNext=go;shareReport(pi,null)}
+var ovNext=null;
 
 /* ================= 3. LOT ================= */
 function start(i){
@@ -482,8 +620,9 @@ function screenLot(){
  $('#app').innerHTML='<div class="card"><h2>'+esc(rName(r))+'</h2>'+
   '<div class="req">'+esc(pQty(r))+' &times; '+esc(pSize(r))+'</div>'+box+'</div>';
  if(locked){
-  bar([['Continue to ingredients',function(){
-   S.batch.step='prep';save();screenPrep()}]]);
+  bar([['Supervisor override',screenOverride,'ghost'],
+   ['Continue to ingredients',function(){
+    S.batch.step='prep';save();screenPrep()}]]);
  }else{
   bar([['Back to schedule',function(){S.batch=null;save();screenList()},'ghost'],
    ['Lock LOT &amp; begin',function(){
@@ -532,7 +671,7 @@ function screenPrep(){
   '<p class="req">Each coloured block is a separate vessel. Finish one block '+
   'before moving to the next. Once you tap Done, that quantity is final.</p>'+
   (html||'<p class="req">This recipe has no ingredient lines.</p>')+'</div>';
- bar([['Back',function(){S.batch.step='lot';save();screenLot()},'ghost'],
+ bar([['Supervisor override',screenOverride,'ghost'],
   ['Go to cooking',function(){
    var all=true;list.forEach(function(_,j){if(!S.batch.lock[j])all=false});
    if(!all){alert('Every ingredient must be measured and marked Done first.');return}
@@ -645,7 +784,9 @@ function screenCook(){
  document.addEventListener('visibilitychange',function(){
   if(!document.hidden&&$('#clock'))draw()});
 
- bar([['Back',function(){if(tick){clearInterval(tick);tick=null}stopAlarm();
+ bar([['Override',function(){if(tick){clearInterval(tick);tick=null}stopAlarm();
+   screenOverride()},'ghost'],
+  ['Back',function(){if(tick){clearInterval(tick);tick=null}stopAlarm();
    S.batch.step='prep';save();screenPrep()},'ghost'],
   ['Finish batch',function(){
    if(b.t1==null||b.t2==null){$('#e').textContent=
@@ -694,7 +835,8 @@ function screenClose(){var b=S.batch,r=recipes()[b.i];
   '<label>Operator sign-off (type your full name)</label>'+
   '<input id="sig" value="'+esc(b.sig)+'" autocomplete="off">'+
   '<div class="err" id="e"></div></div>';
- bar([['Back',function(){b.step='cook';save();screenCook()},'ghost'],
+ bar([['Override',screenOverride,'ghost'],
+  ['Back',function(){b.step='cook';save();screenCook()},'ghost'],
   [DIR?'Save report':'Save &amp; send PDF',function(){
    var sg=$('#sig').value.trim();
    if(!sg){$('#e').textContent='Sign-off name is required.';return}
@@ -875,7 +1017,8 @@ var CSVCOLS=['report_format','schedule_ref','prod_date','shift','product',
  'hold_started_at','hold_minutes','temp_mid_past_c','temp_mid_past_at',
  'temp_final_past_c','temp_final_past_at','incidents',
  'seq','stage','ingredient_code','unit','required_qty','actual_qty',
- 'variance_qty','variance_pct','grade'];
+ 'variance_qty','variance_pct','grade',
+ 'voided','void_reason','void_by','void_at'];
 
 function csvCell(v){
  if(v===null||v===undefined)return '';
@@ -897,7 +1040,8 @@ function reportCSV(R){
  ings.forEach(function(g,i){
   var req=num(g.required),act=num(g.actual);
   rows.push(head.concat([i+1,g.stage,g.code,g.uom,g.required,g.actual,
-   (req||act)?Number((act-req).toFixed(4)):'',g.variance_pct,g.grade])
+   (req||act)?Number((act-req).toFixed(4)):'',g.variance_pct,g.grade,
+   R.voided?'true':'',R.void_reason||'',R.void_by||'',R.void_at||''])
    .map(csvCell).join(','));
  });
  return '\ufeff'+rows.join('\r\n')+'\r\n';
@@ -991,11 +1135,18 @@ function reportPDF(R){
 
 var REPORTDIR='Finished Production';
 function baseName(R){
+ if(R&&R.voided)return baseVoid(R);
  /* Named for the PRODUCTION date and the LOT - the two things anyone looks a
     report up by. The schedule reference is still inside the file. */
  var day=String(R.date||R.saved_at||'').slice(0,10).replace(/[^\d-]/g,'');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(day))day=todayStr();
  return'Finished_Prod_'+day+'_'+String(R.lot).replace(/[^\w-]/g,'')}
+/* A voided batch is named so nobody mistakes it for production, and so GOOS
+   files it beside the real reports without importing it. */
+function baseVoid(R){
+ var day=String(R.date||R.saved_at||'').slice(0,10).replace(/[^\d-]/g,'');
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(day))day=todayStr();
+ return'VOID_Prod_'+day+'_'+String(R.lot||'nolot').replace(/[^\w-]/g,'')}
 
 function saveReport(){
  var R=reportObject(),di=S.batch.i;
@@ -1017,12 +1168,12 @@ function shareReport(pi,di){
   $('#app').innerHTML='<div class="card"><h2>Saved</h2><p class="req"><b>'+esc(base)+
    '.pdf</b> was written into <b>'+esc(S.dest)+' &rsaquo; '+esc(REPORTDIR)+
    '</b>. OneDrive syncs it to the office on its own.</p></div>';
-  bar([['Back to today\u2019s batches',screenList]])}
+  bar([['Back to today\u2019s batches',ovNext?ovContinue:screenList]])}
  function okShare(){mark();
   $('#app').innerHTML='<div class="card"><h2>Sent</h2><p class="req"><b>'+esc(base)+
    '.pdf</b> was shared. In the OneDrive save sheet choose the tablet folder, '+
    'then <b>'+esc(REPORTDIR)+'</b>.</p></div>';
-  bar([['Back to today\u2019s batches',screenList]])}
+  bar([['Back to today\u2019s batches',ovNext?ovContinue:screenList]])}
  function download(){
   [pdf,jsn].forEach(function(f){if(!f)return;
    var a=document.createElement('a');a.href=URL.createObjectURL(f);
@@ -1032,7 +1183,7 @@ function shareReport(pi,di){
    'OneDrive and upload it into the tablet folder\u2019s <b>'+esc(REPORTDIR)+
    '</b> folder, or tap Share again.</p></div>';
   bar([['Share again',function(){shareReport(pi,di)},'ghost'],
-       ['Back to today\u2019s batches',screenList]])}
+       ['Back to today\u2019s batches',ovNext?ovContinue:screenList]])}
  function viaShare(){
   if(pdf&&navigator.canShare&&navigator.canShare({files:[pdf,jsn]})){
    navigator.share({files:[pdf,jsn],title:base}).then(okShare).catch(download)}
@@ -1041,6 +1192,13 @@ function shareReport(pi,di){
  else viaShare()}
 
 function reshare(i){shareReport(i,null)}
+
+/* After a VOID report has been saved, carry on to whatever the override
+   chose - otherwise the supervisor lands back on the batch list and has to
+   remember to restart the recipe themselves. */
+function ovContinue(){
+ var f=ovNext;ovNext=null;
+ if(f)f();else screenList()}
 
 /* ================= hold-timer alarm =================
    Sound is generated with the Web Audio API rather than an audio file: there

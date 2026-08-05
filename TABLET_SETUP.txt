@@ -114,6 +114,21 @@ DAILY USE (either route)
      file box and pick PROD_TODAY_<today>.json. It is the only file
      there, so there is nothing to hunt through, and it is once a day.
 3. Staff sign in and work through the batches.
+
+SUPERVISOR OVERRIDE (when a recipe changes mid-shift)
+-----------------------------------------------------
+A locked LOT is never edited - it is VOIDED whole. On the tablet, tap
+"Supervisor override" (it is on the batch list and on every batch
+screen), choose what to do, write the reason, put your name, and enter
+the CEO password. The open batch leaves as a VOID_Prod_<date>_<LOT>
+report so what was already weighed stays on the record, and GOOS
+refuses to import it as production.
+
+The passcode is checked ON THE TABLET against a verifier GOOS puts
+inside the schedule file - it works with no signal, and no passcode is
+ever stored on the tablet. Five wrong tries locks the override for
+five minutes. Schedules sent by GOOS 2.45 or earlier carry no
+verifier: send the schedule again to enable the override.
 4. Finished reports come back as Finished_Prod_<production date>_<LOT>
    (.pdf and .csv) inside a "Finished Production" subfolder of the same
    tablet folder, which the app makes by itself. GOOS watches that
