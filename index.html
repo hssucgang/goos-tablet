@@ -408,11 +408,15 @@ function lockAct(j){
 
 /* ================= 5. COOK / PASTEURIZATION ================= */
 var tick=null;
+/* The last reading is DELIBERATELY LOWER than the one before it: the batch
+   holds at 80 for the first five minutes and is brought down to 72 for the
+   last five. So gate 4 must not carry gate 3's floor, or every correct
+   reading would be rejected as too cold. */
 var TSTEPS=[
- {n:1,key:'t1',title:'Pre-Boil',rule:'Water must reach 80 \u00B0C',min:80,max:null,std:'min 80 C'},
- {n:2,key:'t2',title:'Cooking Boil',rule:'Water must reach 80 \u00B0C',min:80,max:null,std:'min 80 C'},
- {n:3,key:'t3',title:'Mid-Pasteurization',rule:'Must be 80\u201385 \u00B0C',min:80,max:85,std:'80-85 C'},
- {n:4,key:'t4',title:'Final Pasteurization',rule:'Must be 85\u201390 \u00B0C',min:85,max:90,std:'85-90 C'}
+ {n:1,key:'t1',title:'First reading',rule:'Must reach 80 \u00B0C',min:80,max:null,std:'min 80 C'},
+ {n:2,key:'t2',title:'Second reading',rule:'Must reach 80 \u00B0C',min:80,max:null,std:'min 80 C'},
+ {n:3,key:'t3',title:'Hold \u2013 first 5 minutes',rule:'Must be 80 \u00B0C',min:80,max:null,std:'min 80 C'},
+ {n:4,key:'t4',title:'Hold \u2013 last 5 minutes',rule:'Must be 72 \u00B0C',min:72,max:null,std:'min 72 C'}
 ];
 
 function screenCook(){
@@ -470,10 +474,10 @@ function screenCook(){
   var c=$('#clock');if(!c){if(tick){clearInterval(tick);tick=null}return}
   var L=left();
   c.textContent=gated?'--:--':(pad(Math.floor(L/60))+':'+pad(L%60));
-  $('#tnote').textContent=gated?'Locked until the Cooking Boil is recorded'
+  $('#tnote').textContent=gated?'Locked until the second reading is recorded'
    :(b.t0?('Hold started '+clockOf(b.t0_at)):'Ready \u2014 start when the boil is holding');
   var w3=$('#tw3'),w4=$('#tw4');
-  if(w3)w3.textContent=b.t2==null?'Record the Cooking Boil first.'
+  if(w3)w3.textContent=b.t2==null?'Record the second reading first.'
    :(!b.t0?'Start the hold timer.':'Unlocks at the half mark \u2014 '+
      pad(Math.floor(Math.max(0,L-Math.floor(total/2))/60))+':'+
      pad(Math.max(0,L-Math.floor(total/2))%60)+' to go.');
@@ -484,12 +488,12 @@ function screenCook(){
   if(b.t0&&!b.almHalf&&halfDone()&&!timeUp()){
    b.almHalf=1;save();
    startAlarm('half','Half way through the hold',
-    'Take the Mid-Pasteurization reading now. It should be 80-85 \u00B0C.',
+    'Take the reading for the first 5 minutes now. It should be 80 \u00B0C.',
     pad(Math.floor(total/120))+':00 left');}
   if(b.t0&&!b.almEnd&&timeUp()){
    b.almEnd=1;save();
    startAlarm('end','The '+mins+'-minute hold is done',
-    'Take the Final Pasteurization reading now. It should be 85-90 \u00B0C.',
+    'Bring it down and take the last reading now. It should be 72 \u00B0C.',
     '00:00');}
   if((b.t3==null&&halfDone()&&w3)||(b.t4==null&&timeUp()&&w4)){
    if(tick){clearInterval(tick);tick=null}screenCook();return}
@@ -507,11 +511,11 @@ function screenCook(){
    S.batch.step='prep';save();screenPrep()},'ghost'],
   ['Finish batch',function(){
    if(b.t1==null||b.t2==null){$('#e').textContent=
-    'Record the Pre-Boil and Cooking Boil readings first.';return}
+    'Record the first and second readings first.';return}
    if(!b.t0){$('#e').textContent='Start the hold timer first.';return}
    if(!timeUp()){$('#e').textContent='Wait for the timer to reach 00:00.';return}
-   if(b.t3==null){$('#e').textContent='Record the Mid-Pasteurization reading.';return}
-   if(b.t4==null){$('#e').textContent='Record the Final Pasteurization reading.';return}
+   if(b.t3==null){$('#e').textContent='Record the first 5 minute reading.';return}
+   if(b.t4==null){$('#e').textContent='Record the last 5 minute reading.';return}
    b.step='close';save();
    if(tick){clearInterval(tick);tick=null}screenClose()}]])}
 
@@ -544,8 +548,8 @@ function screenClose(){var b=S.batch,r=recipes()[b.i];
  $('#hdr').innerHTML=esc(rName(r))+'<br>LOT '+esc(b.lot);
  $('#app').innerHTML='<div class="card"><h2>Close the batch</h2>'+
   '<div class="req">'+esc(rName(r))+' &middot; LOT '+esc(b.lot)+'</div>'+
-  '<div class="req" style="margin-top:8px">Pre-Boil '+esc(b.t1)+' \u00B0C &middot; '+
-  'Cooking Boil '+esc(b.t2)+' \u00B0C &middot; Mid '+esc(b.t3)+' \u00B0C &middot; '+
+  '<div class="req" style="margin-top:8px">1st '+esc(b.t1)+' \u00B0C &middot; '+
+  '2nd '+esc(b.t2)+' \u00B0C &middot; first 5 min '+esc(b.t3)+' \u00B0C &middot; '+
   'Final '+esc(b.t4)+' \u00B0C</div>'+
   '<label>Incidents / notes (leave blank if none)</label>'+
   '<textarea id="inc" rows="4">'+esc(b.inc)+'</textarea>'+
@@ -810,17 +814,17 @@ function reportPDF(R){
  var tcols=[{t:'Stage',w:150},{t:'Standard',w:95},{t:'Reading',w:70,al:'r'},
             {t:'Time recorded',w:130},{t:'Result',w:70,al:'c',pill:1}];
  table(d,tcols,[
-  {c:['1  Pre-Boil','Reach 80 C',R.temp_preboil_c+' C',stampOf(R.temp_preboil_at),
+  {c:['1  First reading','Reach 80 C',R.temp_preboil_c+' C',stampOf(R.temp_preboil_at),
       res(R.temp_preboil_c,80,null)]},
-  {c:['2  Cooking Boil','Reach 80 C',R.temp_cookboil_c+' C',stampOf(R.temp_cookboil_at),
+  {c:['2  Second reading','Reach 80 C',R.temp_cookboil_c+' C',stampOf(R.temp_cookboil_at),
       res(R.temp_cookboil_c,80,null)]},
   {c:['     Hold started',R.hold_minutes+' minutes','-',stampOf(R.hold_started_at),''],dim:1},
-  {c:['3  Mid-Pasteurization','80 - 85 C',R.temp_mid_past_c+' C',stampOf(R.temp_mid_past_at),
+  {c:['3  Hold - first 5 min','80 C',R.temp_mid_past_c+' C',stampOf(R.temp_mid_past_at),
       res(R.temp_mid_past_c,80,85)]},
-  {c:['4  Final Pasteurization','85 - 90 C',R.temp_final_past_c+' C',stampOf(R.temp_final_past_at),
+  {c:['4  Hold - last 5 min','72 C',R.temp_final_past_c+' C',stampOf(R.temp_final_past_at),
       res(R.temp_final_past_c,85,90)]}]);
  d.need(18);
- d.text('The hold is timed only from the Cooking Boil \u2014 the timer stays locked '+
+ d.text('The hold is timed only from the second reading \u2014 the timer stays locked '+
   'until that reading is recorded.',d.ML,d.y(),8,{c:GREYT});
  d.gap(22);
 
