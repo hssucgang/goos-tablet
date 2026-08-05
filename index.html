@@ -150,7 +150,24 @@ function pick(o,keys,d){if(d===undefined)d='';for(var i=0;i<keys.length;i++){var
 function num(v){var n=parseFloat(String(v).replace(/,/g,''));return isNaN(n)?0:n}
 function grade(req,act){if(!req)return'PASS';var d=Math.abs(act-req)/req*100;return d<=1?'PASS':d<=2?'WATCH':'FAIL'}
 function pad(n){return String(n).length<2?'0'+String(n):String(n)}
-function nowISO(){return new Date().toISOString()}
+/* THE TABLET'S OWN CLOCK, not UTC.
+   toISOString() returns UTC, and the report then printed that string as if it
+   were the wall clock - so a batch worked at 8:30 in the morning was filed as
+   00:30, and an evening batch was filed under the PREVIOUS DAY. Everything is
+   now stamped in the tablet's local time with its offset kept on the end, so
+   the stamp reads as the clock on the wall and still sorts correctly. */
+function nowISO(){
+ var d=new Date(),off=-d.getTimezoneOffset(),
+     sg=off<0?'-':'+',a=Math.abs(off);
+ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+
+  pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())+
+  sg+pad(Math.floor(a/60))+':'+pad(a%60)}
+/* Shown on the setup screen so a tablet whose own clock has drifted is
+   visible BEFORE a shift is recorded against the wrong time. */
+function clockNow(){var d=new Date();
+ var h=d.getHours(),m=pad(d.getMinutes()),ap=h<12?'AM':'PM';
+ h=h%12;if(!h)h=12;
+ return todayStr()+'  '+h+':'+m+' '+ap}
 function todayStr(){var d=new Date();
  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
 function clockOf(iso){if(!iso)return'';var d=new Date(iso);
@@ -448,7 +465,12 @@ function screenList(){
   '<p class="req">Start one recipe at a time. Once the LOT is locked you stay '+
   'on that batch until its report is saved.</p>'+
   '<div class="dest">Reports \u2192 '+(DIR?('folder <b>'+esc(S.dest)+'</b>')
-   :'share sheet \u2192 OneDrive')+'</div></div>'+
+   :'share sheet \u2192 OneDrive')+'</div>'+
+  /* Every time is stamped from THIS tablet's clock, so if the clock is wrong
+     every record of the shift is wrong. Showing it is the only way anyone
+     would notice. */
+  '<div class="dest">Tablet clock: <b>'+esc(clockNow())+'</b> \u2014 tell the '+
+  'office if that is not the time right now</div></div>'+
   '<div class="card">'+(rows||'<p class="req">No recipes in this schedule.</p>')+'</div>'+
   '<div class="card"><button class="ghost" onclick="newSched()">Load another schedule</button>'+
   '<button class="ghost" onclick="screenLoad()">Change the reports folder</button>'+
@@ -915,12 +937,34 @@ function screenClose(){var b=S.batch,r=recipes()[b.i];
   '<textarea id="inc" rows="4">'+esc(b.inc)+'</textarea>'+
   '<label>Operator sign-off (type your full name)</label>'+
   '<input id="sig" value="'+esc(b.sig)+'" autocomplete="off">'+
-  '<div class="err" id="e"></div></div>';
+  '<div class="err" id="e"></div></div>'+
+  /* What actually came out of the batch. Asked here, at sign-off, because
+     it is the last thing known and the person signing is the one who
+     counted. Either box may be left blank - a batch that filled no 300ml
+     is not a batch with zero 300ml, and the difference matters when these
+     numbers are averaged into a real yield later. */
+  '<div class="card"><h2>Actual bottle yield</h2>'+
+  '<p class="req">How many bottles did this batch actually fill? Leave a box '+
+  'empty if you did not fill that size at all.</p>'+
+  '<label>1L bottles</label>'+
+  '<input id="y1" inputmode="numeric" autocomplete="off" value="'+
+  esc(b.y1==null?'':b.y1)+'">'+
+  '<label>300ml bottles</label>'+
+  '<input id="y3" inputmode="numeric" autocomplete="off" value="'+
+  esc(b.y3==null?'':b.y3)+'">'+
+  '<div class="err" id="ey"></div></div>';
  bar([['Override',screenOverride,'ghost'],
   ['Back',function(){b.step='cook';save();screenCook()},'ghost'],
   [DIR?'Save report':'Save &amp; send PDF',function(){
    var sg=$('#sig').value.trim();
    if(!sg){$('#e').textContent='Sign-off name is required.';return}
+   var v1=($('#y1').value||'').trim(),v3=($('#y3').value||'').trim();
+   if((v1&&!/^\d+(\.\d+)?$/.test(v1))||(v3&&!/^\d+(\.\d+)?$/.test(v3))){
+    $('#ey').textContent='Bottle counts must be numbers - leave a box empty '+
+     'if that size was not filled.';return}
+   if(!v1&&!v3&&!confirm('No bottle yield entered.\n\nSave the report without '+
+    'it?'))return;
+   b.y1=v1===''?null:num(v1);b.y3=v3===''?null:num(v3);
    b.inc=$('#inc').value.trim();b.sig=sg;saveReport()}]])}
 
 /* ================= 7. PDF ENGINE =================
@@ -1080,6 +1124,10 @@ function reportObject(){
   temp_mid_past_c:b.t3,temp_mid_past_at:b.t3_at,
   temp_final_past_c:b.t4,temp_final_past_at:b.t4_at,
   incidents:b.inc||'None',
+  /* null, not 0: "not filled" and "filled none" are different facts, and
+     only the first should be left out of a yield average. */
+  yield_1l_bottles:(b.y1==null?'':b.y1),
+  yield_300_bottles:(b.y3==null?'':b.y3),
   ingredients:ings(r).map(function(g,j){
    var req=iReq(g),act=num(b.act[j]);
    return{stage:iStage(g),code:iName(g),uom:iUom(g),required:req,actual:act,
@@ -1099,7 +1147,8 @@ var CSVCOLS=['report_format','schedule_ref','prod_date','shift','product',
  'temp_final_past_c','temp_final_past_at','incidents',
  'seq','stage','ingredient_code','unit','required_qty','actual_qty',
  'variance_qty','variance_pct','grade',
- 'voided','void_reason','void_by','void_at','void_verified'];
+ 'voided','void_reason','void_by','void_at','void_verified',
+ 'yield_1l_bottles','yield_300_bottles'];
 
 function csvCell(v){
  if(v===null||v===undefined)return '';
@@ -1123,7 +1172,9 @@ function reportCSV(R){
   rows.push(head.concat([i+1,g.stage,g.code,g.uom,g.required,g.actual,
    (req||act)?Number((act-req).toFixed(4)):'',g.variance_pct,g.grade,
    R.voided?'true':'',R.void_reason||'',R.void_by||'',R.void_at||'',
-   R.void_verified||''])
+   R.void_verified||'',
+   R.yield_1l_bottles===''||R.yield_1l_bottles==null?'':R.yield_1l_bottles,
+   R.yield_300_bottles===''||R.yield_300_bottles==null?'':R.yield_300_bottles])
    .map(csvCell).join(','));
  });
  return '\ufeff'+rows.join('\r\n')+'\r\n';
@@ -1191,6 +1242,20 @@ function reportPDF(R){
  d.text('The hold is timed only from the second reading \u2014 the timer stays locked '+
   'until that reading is recorded.',d.ML,d.y(),8,{c:GREYT});
  d.gap(22);
+
+ /* --- what the batch actually filled --- */
+ if(R.yield_1l_bottles!==''&&R.yield_1l_bottles!=null||
+    R.yield_300_bottles!==''&&R.yield_300_bottles!=null){
+  section(d,'ACTUAL BOTTLE YIELD');
+  d.need(30);
+  var yl=[];
+  if(R.yield_1l_bottles!==''&&R.yield_1l_bottles!=null)
+   yl.push(R.yield_1l_bottles+'  x 1L');
+  if(R.yield_300_bottles!==''&&R.yield_300_bottles!=null)
+   yl.push(R.yield_300_bottles+'  x 300ml');
+  d.rect(d.ML,d.y(),d.inner,30,SOFT);
+  d.text(yl.join('        '),d.ML+12,d.y()+19,12,{b:1});
+  d.gap(38)}
 
  /* --- incidents --- */
  section(d,'INCIDENTS & NOTES');
