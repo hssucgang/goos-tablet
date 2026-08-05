@@ -382,10 +382,25 @@ function screenLoad(){
     '</b> &middot; '+esc(pick(pendingSched||S.sched,['date'],''))+' '+
     esc(pick(pendingSched||S.sched,['shift'],''))+'</div>'+
     '<button class="ghost" onclick="clearSched()">Pick a different file</button>'
-  : '<div class="req">Tap the box below and pick today\'s '+
-    '<b>PROD_TODAY_'+todayStr()+'.json</b> &mdash; the file GOOS sent. It is the '+
-    'only file in the tablet folder.</div>'+
-    '<input type="file" id="f" accept=".json,application/json" style="margin-top:10px">';
+  : (DIR
+     /* A folder is remembered, so there is NOTHING to find: one button reads
+        today's schedule straight out of it. Showing a file box here was the
+        confusion - it invited staff to go hunting for a file the app can
+        already open by itself. */
+     ? '<div class="req">Today\u2019s schedule is read straight from '+
+       '<b>'+esc(S.dest)+'</b>. Nothing to look for.</div>'+
+       '<button class="gold" style="margin-top:8px" onclick="autoLoad(true)">'+
+       'Load today\u2019s schedule</button>'+
+       '<div class="err" id="de"></div>'+
+       '<div class="req" style="margin-top:10px">Not there yet? Ask the office '+
+       'to press <b>Send recipes to the tablet</b> in GOOS, then tap again.</div>'+
+       '<button class="ghost" style="margin-top:6px" onclick="showFileBox()">'+
+       'Pick the file by hand instead</button>'+
+       '<div id="fb"></div>'
+     : '<div class="req">Tap the box below and pick today\u2019s '+
+       '<b>PROD_TODAY_'+todayStr()+'.json</b> &mdash; the file GOOS sent. It is '+
+       'the only file in the schedules folder.</div>'+
+       '<input type="file" id="f" accept=".json,application/json" style="margin-top:10px">');
 
  var destHTML;
  if(!haveSched){
@@ -426,14 +441,7 @@ function screenLoad(){
    '<div style="flex:1"><div class="stitle">Where finished reports go</div>'+
    destHTML+'</div></div></div>';
 
- if($('#f'))$('#f').onchange=function(ev){
-  var fl=ev.target.files[0];if(!fl)return;var rd=new FileReader();
-  rd.onload=function(){try{var j=JSON.parse(rd.result);
-   if(!pick(j,['recipes','lines','items'],[]).length)throw 0;
-   pendingSched=j;screenLoad();
-  }catch(x){alert('That file is not a GOOS production schedule.')}};
-  rd.onerror=function(){alert('Could not read that file. Try again.')};
-  rd.readAsText(fl)};
+ wireFileBox();
 
  if(haveSched&&destOK)bar([['Start the shift',beginShift]]);
  else $('#bar').style.display='none'}
@@ -492,6 +500,25 @@ function chooseOut(){pickDir('out',function(ok,why){
  screenFolders();
  if(!ok&&$('#de'))$('#de').textContent=(why==='cancelled'?'No folder chosen.'
   :'Could not use that folder \u2014 you can use the share sheet instead.')})}
+
+/* The manual file box is a fallback, not the front door - it only appears
+   when somebody asks for it. */
+function showFileBox(){
+ var b=$('#fb');if(!b)return;
+ b.innerHTML='<input type="file" id="f" accept=".json,application/json" '+
+  'style="margin-top:10px">';
+ wireFileBox()}
+
+function wireFileBox(){
+ if(!$('#f'))return;
+ $('#f').onchange=function(ev){
+  var fl=ev.target.files[0];if(!fl)return;var rd=new FileReader();
+  rd.onload=function(){try{var j=JSON.parse(rd.result);
+   if(!pick(j,['recipes','lines','items'],[]).length)throw 0;
+   pendingSched=j;screenLoad();
+  }catch(x){alert('That file is not a GOOS production schedule.')}};
+  rd.onerror=function(){alert('Could not read that file. Try again.')};
+  rd.readAsText(fl)}}
 
 function clearSched(){pendingSched=null;
  if(S.sched){S.sched=null;S.done={};S.batch=null;save()}
