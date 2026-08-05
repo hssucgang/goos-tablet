@@ -147,6 +147,8 @@ function num(v){var n=parseFloat(String(v).replace(/,/g,''));return isNaN(n)?0:n
 function grade(req,act){if(!req)return'PASS';var d=Math.abs(act-req)/req*100;return d<=1?'PASS':d<=2?'WATCH':'FAIL'}
 function pad(n){return String(n).length<2?'0'+String(n):String(n)}
 function nowISO(){return new Date().toISOString()}
+function todayStr(){var d=new Date();
+ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
 function clockOf(iso){if(!iso)return'';var d=new Date(iso);
  if(isNaN(d.getTime()))return String(iso);
  return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())}
@@ -156,31 +158,123 @@ function bigNum(v){var n=Number(v);if(!isFinite(n))return String(v);
  var s=(Math.round(n*1000)/1000).toString(),p=s.split('.');
  p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,',');return p.join('.')}
 
-/* ---------------- report destination ---------------- */
+/* ---------------- the remembered folder ----------------
+   ONE folder does both jobs: GOOS drops today's PROD_TODAY_<date>.json into
+   it, and finished reports are written back into it. The handle is kept in
+   IndexedDB (localStorage cannot hold one), so after the first setup the app
+   opens straight onto today's batches with nothing to pick.               */
 var DIR=null;
 function canPickDir(){return typeof window.showDirectoryPicker==='function'}
 
+/* --- tiny IndexedDB wrapper, just for the folder handle --- */
+function idb(cb){
+ if(!window.indexedDB){cb(null);return}
+ var rq;try{rq=indexedDB.open('goos-tablet',1)}catch(e){cb(null);return}
+ rq.onupgradeneeded=function(){try{rq.result.createObjectStore('h')}catch(e){}};
+ rq.onsuccess=function(){cb(rq.result)};
+ rq.onerror=function(){cb(null)}}
+function idbPut(key,val,cb){idb(function(db){
+ if(!db){if(cb)cb(false);return}
+ try{var t=db.transaction('h','readwrite');t.objectStore('h').put(val,key);
+  t.oncomplete=function(){if(cb)cb(true)};
+  t.onerror=function(){if(cb)cb(false)}}catch(e){if(cb)cb(false)}})}
+function idbGet(key,cb){idb(function(db){
+ if(!db){cb(null);return}
+ try{var r=db.transaction('h','readonly').objectStore('h').get(key);
+  r.onsuccess=function(){cb(r.result||null)};
+  r.onerror=function(){cb(null)}}catch(e){cb(null)}})}
+
+function keepDir(h){DIR=h;S.dest=h.name;S.destMode='folder';save();idbPut('dir',h)}
+
+/* Restore without prompting. Calls back with:
+   'granted' - ready to use, 'ask' (+handle) - one tap needed because the
+   browser only re-grants permission on a user gesture, or 'none'.        */
+function restoreDir(cb){
+ if(!canPickDir()){cb('none');return}
+ idbGet('dir',function(h){
+  if(!h){cb('none');return}
+  if(!h.queryPermission){DIR=h;cb('granted');return}
+  h.queryPermission({mode:'readwrite'}).then(function(p){
+   if(p==='granted'){DIR=h;S.dest=h.name;save();cb('granted')}
+   else cb('ask',h)}).catch(function(){cb('ask',h)})})}
+
+function grantDir(h,cb){
+ if(!h.requestPermission){keepDir(h);cb(true);return}
+ h.requestPermission({mode:'readwrite'}).then(function(p){
+  if(p==='granted'){keepDir(h);cb(true)}else cb(false)
+ }).catch(function(){cb(false)})}
+
 function pickDir(cb){
  if(!canPickDir()){cb(false,'not supported');return}
- window.showDirectoryPicker({id:'goos-reports',mode:'readwrite',
+ window.showDirectoryPicker({id:'goos-tablet',mode:'readwrite',
    startIn:'documents'}).then(function(h){
-  if(h.requestPermission){
-   h.requestPermission({mode:'readwrite'}).then(function(p){
-    if(p==='granted'){DIR=h;S.dest=h.name;save();cb(true)}
-    else cb(false,'permission refused')}).catch(function(){cb(false,'permission refused')});
-  }else{DIR=h;S.dest=h.name;save();cb(true)}
+  grantDir(h,function(ok){cb(ok,ok?'':'permission refused')})
  }).catch(function(){cb(false,'cancelled')})}
+
+/* --- find today's schedule in that folder, newest first ---------------- */
+function isSchedName(n){return /^PROD_TODAY_.*\.json$/i.test(n)||
+ /^GOOS_PRODUCTION_.*\.json$/i.test(n)}
+function schedFiles(cb){
+ if(!DIR||!DIR.values){cb([]);return}
+ var out=[],it=DIR.values();
+ function step(){it.next().then(function(r){
+  if(r.done){cb(out);return}
+  var e=r.value;
+  if(e.kind==='file'&&isSchedName(e.name))out.push(e);
+  step()}).catch(function(){cb(out)})}
+ step()}
+function newestSched(cb){
+ schedFiles(function(list){
+  if(!list.length){cb(null);return}
+  var files=[],i=0;
+  function step(){
+   if(i>=list.length){
+    files.sort(function(a,b){return b.f.lastModified-a.f.lastModified||
+      (a.f.name<b.f.name?1:-1)});
+    cb(files.length?files[0].f:null);return}
+   list[i++].getFile().then(function(f){files.push({f:f});step()})
+    .catch(step)}
+  step()})}
+function loadNewest(cb){
+ newestSched(function(f){
+  if(!f){cb(null);return}
+  var rd=new FileReader();
+  rd.onload=function(){try{var j=JSON.parse(rd.result);
+   if(!pick(j,['recipes','lines','items'],[]).length)throw 0;cb(j)}catch(x){cb(null)}};
+  rd.onerror=function(){cb(null)};
+  rd.readAsText(f)})}
+
+/* Adopting a schedule keeps this shift's progress when it is the SAME
+   schedule re-read from the folder, and only resets on a genuinely new
+   reference - otherwise a reopen mid-shift would wipe finished batches. */
+function adoptSched(j){
+ var oldRef=S.sched?pick(S.sched,['reference','ref'],''):'';
+ var newRef=pick(j,['reference','ref'],'');
+ if(oldRef&&newRef&&oldRef===newRef){S.sched=j;save();return false}
+ S.sched=j;S.ops=pick(j,['operator'],'');S.done={};S.batch=null;save();return true}
+
+/* Reports go into <tablet folder>/Finished Production, so the tablet folder
+   itself holds nothing but today's schedule and staff never pick the wrong
+   file. If the subfolder cannot be made, write to the folder itself rather
+   than lose the report - GOOS looks in both places. */
+function reportDir(cb){
+ if(!DIR){cb(null);return}
+ if(!DIR.getDirectoryHandle){cb(DIR);return}
+ DIR.getDirectoryHandle(REPORTDIR,{create:true}).then(function(h){cb(h)})
+  .catch(function(){cb(DIR)})}
 
 function writeToDir(files,done,fail){
  if(!DIR){fail();return}
- var i=0;
- function next(){
-  if(i>=files.length){done();return}
-  var f=files[i++];
-  DIR.getFileHandle(f.name,{create:true}).then(function(fh){
-   return fh.createWritable()}).then(function(w){
-   return w.write(f).then(function(){return w.close()})}).then(next).catch(fail)}
- next()}
+ reportDir(function(D){
+  if(!D){fail();return}
+  var i=0;
+  function next(){
+   if(i>=files.length){done();return}
+   var f=files[i++];
+   D.getFileHandle(f.name,{create:true}).then(function(fh){
+    return fh.createWritable()}).then(function(w){
+    return w.write(f).then(function(){return w.close()})}).then(next).catch(fail)}
+  next()})}
 
 /* ---- schedule readers ---- */
 function recipes(){return pick(S.sched,['recipes','lines','items'],[])}
@@ -205,6 +299,18 @@ var pendingSched=null;
 
 function screenLoad(){
  $('#bar').style.display='none';$('#hdr').textContent='';
+ /* With a folder picker the folder comes FIRST - the schedule is read out of
+    it, so asking for a file before a folder would be backwards. One card,
+    one button, then the app never asks again. */
+ if(canPickDir()&&!DIR&&!S.sched&&S.destMode!=='share'){
+  $('#app').innerHTML='<div class="card"><h2>Set this tablet up once</h2>'+
+   '<p class="req">Choose the <b>tablet folder</b> in OneDrive. Today\u2019s '+
+   'schedule is read from it and finished reports are written back into it. '+
+   'After this the app opens straight onto the batches every morning.</p>'+
+   '<div class="err" id="de"></div></div>';
+  bar([['Choose the tablet folder',chooseDest],
+       ['Use the share sheet instead',useShare,'ghost']]);
+  return}
  var haveSched=!!(pendingSched||S.sched);
  var destOK=!!DIR||S.destMode==='share';
  var s1=haveSched?'done':'',s2=haveSched?(destOK?'done':''):'wait';
@@ -214,28 +320,34 @@ function screenLoad(){
     '</b> &middot; '+esc(pick(pendingSched||S.sched,['date'],''))+' '+
     esc(pick(pendingSched||S.sched,['shift'],''))+'</div>'+
     '<button class="ghost" onclick="clearSched()">Pick a different file</button>'
-  : '<div class="req">Open the OneDrive app, go to <b>GOOS &rsaquo; Operations &rsaquo; '+
-    'Production</b>, and pick today\'s <b>GOOS_PRODUCTION_PS-&hellip;.json</b> file.</div>'+
+  : '<div class="req">Tap the box below and pick today\'s '+
+    '<b>PROD_TODAY_'+todayStr()+'.json</b> &mdash; the file GOOS sent. It is the '+
+    'only file in the tablet folder.</div>'+
     '<input type="file" id="f" accept=".json,application/json" style="margin-top:10px">';
 
  var destHTML;
  if(!haveSched){
   destHTML='<div class="req">Load the schedule first.</div>';
  }else if(DIR){
-  destHTML='<div class="req">Reports will be written straight into:</div>'+
+  destHTML='<div class="req">This tablet remembers the folder. Schedules are '+
+   'read from it and reports written back into it:</div>'+
    '<div class="name" style="margin-top:4px">'+esc(S.dest)+'</div>'+
+   '<button class="ghost" onclick="lookAgain()">Look for today\u2019s schedule</button>'+
    '<button class="ghost" onclick="chooseDest()">Choose a different folder</button>';
  }else if(canPickDir()){
-  destHTML='<div class="req">Choose the OneDrive folder finished reports go into '+
-   '&mdash; normally <b>GOOS &rsaquo; Operations &rsaquo; Reports</b>. Reports then save '+
-   'there automatically with no extra taps.</div>'+
-   '<button class="gold" onclick="chooseDest()">Choose the reports folder</button>'+
+  destHTML='<div class="req">Choose the <b>tablet folder</b> in OneDrive once. '+
+   'Today\'s schedule is read from it and finished reports are written back '+
+   'into it (in a <b>Finished Production</b> subfolder it makes itself), so '+
+   'from tomorrow this app opens straight onto the batches with nothing to '+
+   'pick.</div>'+
+   '<button class="gold" onclick="chooseDest()">Choose the tablet folder</button>'+
    '<button class="ghost" onclick="useShare()">Use the share sheet instead</button>'+
    '<div class="err" id="de"></div>';
  }else{
   destHTML='<div class="req">This tablet\u2019s browser cannot write into a folder '+
    'directly, so each finished report opens the <b>share sheet</b> instead: tap '+
-   '<b>OneDrive</b>, then save into <b>GOOS &rsaquo; Operations &rsaquo; Reports</b>. '+
+   '<b>OneDrive</b>, then save into the tablet folder\u2019s <b>Finished '+
+   'Production</b> folder. '+
    'Nothing is lost either way &mdash; a report stays flagged NOT SENT until it '+
    'actually leaves the tablet.</div>'+
    (S.destMode==='share'?'<div class="stamp">SHARE SHEET CONFIRMED</div>'
@@ -268,9 +380,35 @@ function clearSched(){pendingSched=null;
  if(S.sched){S.sched=null;S.done={};S.batch=null;save()}
  screenLoad()}
 function chooseDest(){pickDir(function(ok,why){
- if(!ok&&$('#de'))$('#de').textContent=(why==='cancelled'?'No folder chosen.'
-  :'Could not use that folder \u2014 you can use the share sheet instead.');
- screenLoad()})}
+ if(ok){autoLoad(true);return}
+ screenLoad();
+ if($('#de'))$('#de').textContent=(why==='cancelled'?'No folder chosen.'
+  :'Could not use that folder \u2014 you can use the share sheet instead.')})}
+function lookAgain(){autoLoad(true)}
+
+/* Read the newest schedule out of the remembered folder. `manual` means the
+   operator asked, so say plainly when nothing is there rather than falling
+   back silently. */
+function autoLoad(manual){
+ splash('Looking for today\u2019s schedule\u2026');
+ loadNewest(function(j){
+  if(!j){screenLoad();
+   if(manual&&$('#de'))$('#de').textContent='No schedule file in that folder yet.';
+   return}
+  adoptSched(j);pendingSched=null;screenList()})}
+
+function splash(msg){$('#bar').style.display='none';$('#hdr').textContent='';
+ $('#app').innerHTML='<div class="card"><h2>'+esc(msg)+'</h2></div>'}
+
+/* Permission for a remembered folder can only be re-granted on a tap, so
+   this is that one tap - and it is the ONLY thing on screen. */
+function screenResume(h){
+ $('#bar').style.display='none';$('#hdr').textContent='';
+ $('#app').innerHTML='<div class="card"><h2>Ready for today</h2>'+
+  '<p class="req">Tap below to open today\u2019s schedule from '+
+  '<b>'+esc(S.dest||'the tablet folder')+'</b>.</p></div>';
+ bar([['Start &mdash; load today\u2019s schedule',function(){
+   grantDir(h,function(ok){if(ok)autoLoad(true);else screenLoad()})}]])}
 function useShare(){S.destMode='share';DIR=null;S.dest=null;save();screenLoad()}
 
 function beginShift(){
@@ -851,8 +989,13 @@ function reportPDF(R){
 
  return finishDoc(d,'Grain Ola  \u00B7  '+R.recipe+'  \u00B7  LOT '+R.lot)}
 
+var REPORTDIR='Finished Production';
 function baseName(R){
- return'GOOS_REPORT_'+(R.schedule_ref||'PS')+'_'+String(R.lot).replace(/[^\w-]/g,'')}
+ /* Named for the PRODUCTION date and the LOT - the two things anyone looks a
+    report up by. The schedule reference is still inside the file. */
+ var day=String(R.date||R.saved_at||'').slice(0,10).replace(/[^\d-]/g,'');
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(day))day=todayStr();
+ return'Finished_Prod_'+day+'_'+String(R.lot).replace(/[^\w-]/g,'')}
 
 function saveReport(){
  var R=reportObject(),di=S.batch.i;
@@ -872,13 +1015,13 @@ function shareReport(pi,di){
   if(di!=null&&S.done[di])S.done[di].shared=true;save()}
  function okFolder(){mark();
   $('#app').innerHTML='<div class="card"><h2>Saved</h2><p class="req"><b>'+esc(base)+
-   '.pdf</b> was written into <b>'+esc(S.dest)+'</b>. OneDrive syncs it to the '+
-   'office on its own.</p></div>';
+   '.pdf</b> was written into <b>'+esc(S.dest)+' &rsaquo; '+esc(REPORTDIR)+
+   '</b>. OneDrive syncs it to the office on its own.</p></div>';
   bar([['Back to today\u2019s batches',screenList]])}
  function okShare(){mark();
   $('#app').innerHTML='<div class="card"><h2>Sent</h2><p class="req"><b>'+esc(base)+
-   '.pdf</b> was shared. In the OneDrive save sheet choose '+
-   '<b>GOOS &rsaquo; Operations &rsaquo; Reports</b>.</p></div>';
+   '.pdf</b> was shared. In the OneDrive save sheet choose the tablet folder, '+
+   'then <b>'+esc(REPORTDIR)+'</b>.</p></div>';
   bar([['Back to today\u2019s batches',screenList]])}
  function download(){
   [pdf,jsn].forEach(function(f){if(!f)return;
@@ -886,8 +1029,8 @@ function shareReport(pi,di){
    a.download=f.name;document.body.appendChild(a);a.click();a.remove()});
   $('#app').innerHTML='<div class="card"><h2>Report ready</h2><p class="req"><b>'+
    esc(base)+'.pdf</b> was saved to this tablet\u2019s Downloads instead. Open '+
-   'OneDrive and upload it to <b>GOOS &rsaquo; Operations &rsaquo; Reports</b>, or '+
-   'tap Share again.</p></div>';
+   'OneDrive and upload it into the tablet folder\u2019s <b>'+esc(REPORTDIR)+
+   '</b> folder, or tap Share again.</p></div>';
   bar([['Share again',function(){shareReport(pi,di)},'ghost'],
        ['Back to today\u2019s batches',screenList]])}
  function viaShare(){
@@ -1009,10 +1152,24 @@ function bar(btns){
  btns.forEach(function(b){var x=document.createElement('button');
   x.innerHTML=b[0];if(b[2])x.className=b[2];x.onclick=b[1];el.appendChild(x)})}
 
-if(!S.sched)screenLoad();
-else if(S.batch){({lot:screenLot,prep:screenPrep,cook:screenCook,close:screenClose}
- [S.batch.step]||screenList)()}
-else screenLoad();
+function resumeBatch(){({lot:screenLot,prep:screenPrep,cook:screenCook,
+ close:screenClose}[S.batch.step]||screenList)()}
+
+function boot(){
+ /* A batch in progress always wins - never interrupt a running cook. */
+ if(S.sched&&S.batch){resumeBatch();return}
+ if(!canPickDir()){
+  /* No folder picker on this browser: reports go out by share sheet, so
+     confirm that once instead of asking every morning. */
+  if(!S.destMode)S.destMode='share';
+  if(S.sched&&S.destMode==='share'){screenList();return}
+  screenLoad();return}
+ splash('Looking for today\u2019s schedule\u2026');
+ restoreDir(function(state,h){
+  if(state==='granted'){autoLoad(false);return}
+  if(state==='ask'){screenResume(h);return}
+  screenLoad()})}
+boot();
 
 if(location.protocol.indexOf('http')===0&&navigator.serviceWorker){
  navigator.serviceWorker.register('sw.js').catch(function(){})}
