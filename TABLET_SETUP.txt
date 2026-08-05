@@ -101,10 +101,30 @@ tablet has) rather than being written into the folder for you.
 DAILY USE (either route)
 ------------------------
 1. In GOOS: Schedule Production -> "Send recipes to the tablet". That
-   writes GOOS_PRODUCTION_<reference>.json into the tablet folder.
-2. On the tablet: open the app, tap the file box, pick that json file.
-   The tablet remembers it, so this is once a day, not once a batch.
+   writes ONE file, PROD_TODAY_<production date>.json, into the tablet
+   folder - named for the day the work is FOR. Nothing else is written
+   there, and the previous day's schedule moves into "Past schedules".
+2. On the tablet: just open the app.
+   - Served over https on a browser with the folder picker: the folder
+     is chosen ONCE, on the first morning. After that the app finds the
+     newest schedule in it by itself. Some browsers ask for the folder
+     permission again after a restart - that is one tap on the single
+     button on screen, then it loads.
+   - On a browser with no folder picker (Android Chrome today): tap the
+     file box and pick PROD_TODAY_<today>.json. It is the only file
+     there, so there is nothing to hunt through, and it is once a day.
 3. Staff sign in and work through the batches.
+4. Finished reports come back as Finished_Prod_<production date>_<LOT>
+   (.pdf and .csv) inside a "Finished Production" subfolder of the same
+   tablet folder, which the app makes by itself. GOOS watches that
+   subfolder, and the Raw Materials and QA imports open there.
+
+THE APP FILES ARE NOT IN THE TABLET FOLDER
+------------------------------------------
+"Set up tablet app" writes index.html, sw.js, manifest.json, the icons
+and this file into an "App files" subfolder. Those go to the host; the
+tablet folder itself is kept empty except for the day's schedule so
+staff cannot pick the wrong thing.
 
 Progress is stored on the tablet itself, so a flat battery or a locked
 screen mid-batch loses nothing. Tell staff not to use "clear browsing
