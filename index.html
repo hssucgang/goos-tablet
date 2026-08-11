@@ -139,6 +139,9 @@ li{margin-bottom:10px;font-size:18px}
 </div></div>
 <script>
 var K='goos_tab_v5';
+/* Stamped in when GOOS writes the app, so a tablet can be checked against the
+   laptop without guessing which build it is running. */
+var APPVER='2.71.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -175,8 +178,11 @@ function clockOf(iso){if(!iso)return'';var d=new Date(iso);
  return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())}
 function stampOf(iso){if(!iso)return'-';return String(iso).replace('T',' ').slice(0,19)}
 function dayOf(iso){return iso?String(iso).slice(0,10):'-'}
+/* TWO DECIMALS, everywhere a recipe quantity is shown. Nobody weighs to a
+   thousandth of a gram, and a third decimal only makes the number harder to
+   read at arm's length on a bench. */
 function bigNum(v){var n=Number(v);if(!isFinite(n))return String(v);
- var s=(Math.round(n*1000)/1000).toString(),p=s.split('.');
+ var s=(Math.round(n*100)/100).toString(),p=s.split('.');
  p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,',');return p.join('.')}
 
 /* ---------------- the remembered folder ----------------
@@ -593,7 +599,8 @@ function screenList(){
      every record of the shift is wrong. Showing it is the only way anyone
      would notice. */
   '<div class="dest">Tablet clock: <b>'+esc(clockNow())+'</b> \u2014 tell the '+
-  'office if that is not the time right now</div></div>'+
+  'office if that is not the time right now</div>'+
+  '<div class="dest">App version <b>'+esc(APPVER)+'</b></div></div>'+
   '<div class="card">'+(rows||'<p class="req">No recipes in this schedule.</p>')+'</div>'+
   '<div class="card"><button class="ghost" onclick="newSched()">Load another schedule</button>'+
   '<button class="ghost" onclick="screenFolders()">Change the folders</button>'+
@@ -843,6 +850,7 @@ function screenLot(){
     'recorded from here is traced to it, and it cannot be changed once set.</p>'+
     '<label>LOT number</label><input id="lot" value="'+esc(b.lot)+'" autocomplete="off">'+
     '<div class="err" id="e"></div>';
+ box+='</div>'+prepCard(r)+'<div class="card" style="display:none">';
  $('#app').innerHTML='<div class="card"><h2>'+esc(rName(r))+'</h2>'+
   '<div class="req">'+esc(pQty(r))+' &times; '+esc(pSize(r))+'</div>'+box+'</div>';
  if(locked){
@@ -870,7 +878,17 @@ var GC=['#1F2A4A','#256B45','#8F6111','#6B3F96','#0C6B78','#9E2E2E','#3E5F94','#
    the ingredients, exactly as before. */
 function prepOf(r){var p=(r&&r.prep)||{};return {
  mode:String(p.mode||'premix'), temp:num(p.steep_temp_c||0),
- mins:num(p.steep_minutes||0)}}
+ mins:num(p.steep_minutes||0),
+ how:String(p.how||'PRE-MIX in the pitchers as numbered, then into the vat.')}}
+
+/* The instruction card. The procedure matters as much as the weights, so it
+   is shown on EVERY screen where work is about to start, not left in a file
+   nobody opens. */
+function prepCard(r){var p=prepOf(r);
+ return '<div class="card"><h2>How this batch starts</h2>'+
+  '<p class="req" style="font-size:19px">'+esc(p.how)+'</p>'+
+  '<p class="req">Then pasteurize: hold 10 minutes, 72 \u00B0C at the mid '+
+  'reading and 72 \u00B0C at the end.</p></div>'}
 function needSteep(r){var p=prepOf(r);
  return p.mode==='steep'&&p.temp>0&&p.mins>0&&!S.batch.steep_at}
 
@@ -930,7 +948,7 @@ function steepStart(){
 
 function mmss(sec){var m=Math.floor(sec/60),s2=sec%60;
  return m+':'+(s2<10?'0':'')+s2}
-function fmtNum(v){return String(Math.round(v*10)/10)}
+function fmtNum(v){return String(Math.round(v*100)/100)}
 
 function screenPrep(){
  var r=recipes()[S.batch.i],list=ings(r);
@@ -961,7 +979,7 @@ function screenPrep(){
     (locked?'<div class="rec">RECORDED &mdash; CANNOT BE CHANGED</div>':'')+'</div>'}).join('');
   return'<div class="grp" style="--gc:'+col+'"><div class="ghead"><b>'+esc(G.st)+'</b>'+
    '<span>'+done+' / '+G.rows.length+'</span></div>'+rows+'</div>'}).join('');
- $('#app').innerHTML='<div class="card"><h2>'+esc(rName(r))+'</h2>'+
+ $('#app').innerHTML=prepCard(r)+'<div class="card"><h2>'+esc(rName(r))+'</h2>'+
   '<div class="req">LOT <b>'+esc(S.batch.lot)+'</b> &middot; scale &times;'+
   esc(pick(r,['scale_factor'],1))+'</div>'+
   '<p class="req">Each coloured block is a separate vessel. Finish one block '+
