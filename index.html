@@ -847,7 +847,8 @@ function screenLot(){
   '<div class="req">'+esc(pQty(r))+' &times; '+esc(pSize(r))+'</div>'+box+'</div>';
  if(locked){
   bar([['Supervisor override',screenOverride,'ghost'],
-   ['Continue to ingredients',function(){
+   ['Continue',function(){
+    if(needSteep(recipes()[S.batch.i])){S.batch.step='steep';save();screenSteep();return}
     S.batch.step='prep';save();screenPrep()}]]);
  }else{
   bar([['Back to schedule',function(){S.batch=null;save();screenList()},'ghost'],
@@ -861,6 +862,75 @@ function screenLot(){
 
 /* ================= 4. INGREDIENT PREP ================= */
 var GC=['#1F2A4A','#256B45','#8F6111','#6B3F96','#0C6B78','#9E2E2E','#3E5F94','#755A22'];
+
+/* THE MODULAR FIRST STEP. Plant milks pre-mix in pitchers, tea concentrates
+   steep first, syrups go straight into the vat - and everything AFTER this is
+   identical for all of them. Only recipes that carry a steep with both a
+   temperature and a time reach this screen; anything else goes straight to
+   the ingredients, exactly as before. */
+function prepOf(r){var p=(r&&r.prep)||{};return {
+ mode:String(p.mode||'premix'), temp:num(p.steep_temp_c||0),
+ mins:num(p.steep_minutes||0)}}
+function needSteep(r){var p=prepOf(r);
+ return p.mode==='steep'&&p.temp>0&&p.mins>0&&!S.batch.steep_at}
+
+function screenSteep(){
+ var r=recipes()[S.batch.i],p=prepOf(r),b=S.batch,total=p.mins*60;
+ $('#hdr').innerHTML=esc(rName(r))+'<br>LOT '+esc(b.lot);
+ function left(){return b.st0?Math.max(0,total-Math.floor((Date.now()-b.st0)/1000)):total}
+ function draw(){
+  var done=b.st0&&left()===0;
+  $('#app').innerHTML='<div class="card"><h2>Steeping</h2>'+
+   '<p class="req">This product steeps before anything else goes in. Bring it '+
+   'to <b>'+fmtNum(p.temp)+' \u00B0C</b> and hold it for <b>'+fmtNum(p.mins)+
+   ' minutes</b>.</p>'+
+   '<label>Temperature at the start of the steep (\u00B0C)</label>'+
+   '<div class="row"><input inputmode="decimal" id="stc" value="'+
+   esc(b.steep_c==null?'':b.steep_c)+'"><button class="gold" '+
+   'onclick="steepSet()">Record</button></div>'+
+   '<div class="err" id="e"></div></div>'+
+   '<div class="card"><h2>'+(b.st0?(done?'Steep done':'Steeping \u2014 '+
+    mmss(left())):'Timer not started')+'</h2>'+
+   '<p class="req">'+(b.st0?('Started '+clockOf(b.st0_at)):
+    'Record the temperature first, then start the timer.')+'</p>'+
+   (b.steep_c!=null&&!b.st0?'<button class="gold" onclick="steepStart()">Start the '+
+    fmtNum(p.mins)+'-minute steep</button>':'')+'</div>';
+  bar([['Supervisor override',screenOverride,'ghost'],
+       ['Continue to ingredients',function(){
+     if(b.steep_c==null){$('#e').textContent=
+      'Record the steeping temperature first.';return}
+     if(!b.st0){$('#e').textContent='Start the steep timer first.';return}
+     if(left()>0&&!confirm('The steep still has '+mmss(left())+' left.\n\n'+
+      'Move on anyway? The time actually steeped goes on the report.'))return;
+     b.steep_at=nowISO();b.steep_actual=Math.round((total-left())/60*10)/10;
+     b.step='prep';save();screenPrep()}]]);
+ }
+ steepDraw=draw;
+ draw()}
+
+/* Top-level, not assigned onto window inside the screen: a handler that only
+   exists after a render is a handler that breaks the moment anything renders
+   in a different order. */
+var steepDraw=null;
+
+function steepSet(){
+ var b=S.batch,p=prepOf(recipes()[b.i]),v=num($('#stc').value);
+ if(!v){$('#e').textContent='Enter the temperature.';return}
+ if(v<p.temp){$('#e').textContent='Too cold \u2014 must reach '+
+  fmtNum(p.temp)+' \u00B0C before the steep counts.';return}
+ b.steep_c=v;b.steep_c_at=nowISO();save();if(steepDraw)steepDraw()}
+
+function steepStart(){
+ var b=S.batch;
+ b.st0=Date.now();b.st0_at=nowISO();save();
+ if(steepDraw)steepDraw();
+ var iv=setInterval(function(){
+  if(!S.batch||S.batch.step!=='steep'){clearInterval(iv);return}
+  if(steepDraw)steepDraw()},1000)}
+
+function mmss(sec){var m=Math.floor(sec/60),s2=sec%60;
+ return m+':'+(s2<10?'0':'')+s2}
+function fmtNum(v){return String(Math.round(v*10)/10)}
 
 function screenPrep(){
  var r=recipes()[S.batch.i],list=ings(r);
@@ -912,14 +982,14 @@ function lockAct(j){
 /* ================= 5. COOK / PASTEURIZATION ================= */
 var tick=null;
 /* The last reading is DELIBERATELY LOWER than the one before it: the batch
-   holds at 80 for the first five minutes and is brought down to 72 for the
-   last five. So gate 4 must not carry gate 3's floor, or every correct
-   reading would be rejected as too cold. */
+   THE PASTEURIZATION IS THE ONE CONSTANT across every product he makes: a
+   10-minute hold with a mid reading and an end reading, both at 72 C. Only
+   the steps BEFORE it differ by recipe. */
 var TSTEPS=[
  {n:1,key:'t1',title:'First reading',rule:'Must reach 80 \u00B0C',min:80,max:null,std:'min 80 C'},
  {n:2,key:'t2',title:'Second reading',rule:'Must reach 80 \u00B0C',min:80,max:null,std:'min 80 C'},
- {n:3,key:'t3',title:'Hold \u2013 first 5 minutes',rule:'Must be 80 \u00B0C',min:80,max:null,std:'min 80 C'},
- {n:4,key:'t4',title:'Hold \u2013 last 5 minutes',rule:'Must be 72 \u00B0C',min:72,max:null,std:'min 72 C'}
+ {n:3,key:'t3',title:'Hold \u2013 mid reading',rule:'Must be 72 \u00B0C',min:72,max:null,std:'min 72 C'},
+ {n:4,key:'t4',title:'Hold \u2013 end reading',rule:'Must be 72 \u00B0C',min:72,max:null,std:'min 72 C'}
 ];
 
 function screenCook(){
@@ -1247,6 +1317,10 @@ function reportObject(){
   temp_mid_past_c:b.t3,temp_mid_past_at:b.t3_at,
   temp_final_past_c:b.t4,temp_final_past_at:b.t4_at,
   incidents:b.inc||'None',
+  steep_temp_c:(b.steep_c==null?'':b.steep_c),
+  steep_temp_at:b.steep_c_at||'',
+  steep_minutes:(b.steep_actual==null?'':b.steep_actual),
+  steep_started_at:b.st0_at||'',
   /* null, not 0: "not filled" and "filled none" are different facts, and
      only the first should be left out of a yield average. */
   yield_1l_bottles:(b.y1==null?'':b.y1),
@@ -1271,7 +1345,8 @@ var CSVCOLS=['report_format','schedule_ref','prod_date','shift','product',
  'seq','stage','ingredient_code','unit','required_qty','actual_qty',
  'variance_qty','variance_pct','grade',
  'voided','void_reason','void_by','void_at','void_verified',
- 'yield_1l_bottles','yield_300_bottles'];
+ 'yield_1l_bottles','yield_300_bottles',
+ 'steep_temp_c','steep_temp_at','steep_minutes','steep_started_at'];
 
 function csvCell(v){
  if(v===null||v===undefined)return '';
@@ -1297,7 +1372,8 @@ function reportCSV(R){
    R.voided?'true':'',R.void_reason||'',R.void_by||'',R.void_at||'',
    R.void_verified||'',
    R.yield_1l_bottles===''||R.yield_1l_bottles==null?'':R.yield_1l_bottles,
-   R.yield_300_bottles===''||R.yield_300_bottles==null?'':R.yield_300_bottles])
+   R.yield_300_bottles===''||R.yield_300_bottles==null?'':R.yield_300_bottles,
+   R.steep_temp_c,R.steep_temp_at,R.steep_minutes,R.steep_started_at])
    .map(csvCell).join(','));
  });
  return '\ufeff'+rows.join('\r\n')+'\r\n';
@@ -1357,10 +1433,10 @@ function reportPDF(R){
   {c:['2  Second reading','Reach 80 C',R.temp_cookboil_c+' C',stampOf(R.temp_cookboil_at),
       res(R.temp_cookboil_c,80,null)]},
   {c:['     Hold started',R.hold_minutes+' minutes','-',stampOf(R.hold_started_at),''],dim:1},
-  {c:['3  Hold - first 5 min','80 C',R.temp_mid_past_c+' C',stampOf(R.temp_mid_past_at),
-      res(R.temp_mid_past_c,80,85)]},
-  {c:['4  Hold - last 5 min','72 C',R.temp_final_past_c+' C',stampOf(R.temp_final_past_at),
-      res(R.temp_final_past_c,85,90)]}]);
+  {c:['3  Hold - mid reading','72 C',R.temp_mid_past_c+' C',stampOf(R.temp_mid_past_at),
+      res(R.temp_mid_past_c,72,null)]},
+  {c:['4  Hold - end reading','72 C',R.temp_final_past_c+' C',stampOf(R.temp_final_past_at),
+      res(R.temp_final_past_c,72,null)]}]);
  d.need(18);
  d.text('The hold is timed only from the second reading \u2014 the timer stays locked '+
   'until that reading is recorded.',d.ML,d.y(),8,{c:GREYT});
@@ -1580,8 +1656,8 @@ function bar(btns){
  btns.forEach(function(b){var x=document.createElement('button');
   x.innerHTML=b[0];if(b[2])x.className=b[2];x.onclick=b[1];el.appendChild(x)})}
 
-function resumeBatch(){({lot:screenLot,prep:screenPrep,cook:screenCook,
- close:screenClose}[S.batch.step]||screenList)()}
+function resumeBatch(){({lot:screenLot,steep:screenSteep,prep:screenPrep,
+ cook:screenCook,close:screenClose}[S.batch.step]||screenList)()}
 
 function boot(){
  /* A batch in progress always wins - never interrupt a running cook. */
