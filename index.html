@@ -141,7 +141,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='2.71.0';
+var APPVER='2.72.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -876,19 +876,58 @@ var GC=['#1F2A4A','#256B45','#8F6111','#6B3F96','#0C6B78','#9E2E2E','#3E5F94','#
    identical for all of them. Only recipes that carry a steep with both a
    temperature and a time reach this screen; anything else goes straight to
    the ingredients, exactly as before. */
-function prepOf(r){var p=(r&&r.prep)||{};return {
- mode:String(p.mode||'premix'), temp:num(p.steep_temp_c||0),
- mins:num(p.steep_minutes||0),
- how:String(p.how||'PRE-MIX in the pitchers as numbered, then into the vat.')}}
+/* THE PROCESS, as GOOS defined it. The stage ORDER is decided in GOOS and
+   sent with the schedule, so what the operator walks through is whatever the
+   recipe says - not a sequence hard-coded here that only matches one product
+   family. */
+function prepOf(r){var p=(r&&r.prep)||{};
+ return {process:String(p.process||'plant_milk'),
+  label:String(p.label||'Plant Milk Process'),
+  t1:num(p.temp_initial_c||0), t2:num(p.temp_secondary_c||0),
+  mins:num(p.steep_minutes||0),
+  stages:(p.stages&&p.stages.length?p.stages:null),
+  how:String(p.how||'Plant Milk Process')}}
+
+/* The stages, with the constant tail guaranteed: even a schedule sent by an
+   older GOOS ends with the 10-minute hold at 72 C. */
+function stagesOf(r){
+ var p=prepOf(r);
+ if(p.stages)return p.stages;
+ return [{kind:'temp',slot:'initial',min_c:p.t1||80,title:'First reading'},
+         {kind:'popup',group:1,title:'1st Pre-Mix'},
+         {kind:'temp',slot:'secondary',min_c:p.t2||80,title:'Second reading'},
+         {kind:'popup',group:2,title:'2nd Pre-Mix'},
+         {kind:'hold',minutes:10,mid_c:72,end_c:72,title:'Pasteurization hold'}]}
+
+function stageDone(st,i){
+ var b=S.batch;
+ if(st.kind==='temp')return b[st.slot==='initial'?'t1':'t2']!=null;
+ if(st.kind==='popup')return !!b['pop'+st.group];
+ if(st.kind==='steep')return !!b.steep_at;
+ return b.t4!=null}
+
+/* The first stage not yet done - what the operator is being asked for. */
+function stageOpen(r){
+ var st=stagesOf(r);
+ for(var i=0;i<st.length;i++)if(!stageDone(st[i],i))return i;
+ return st.length}
 
 /* The instruction card. The procedure matters as much as the weights, so it
    is shown on EVERY screen where work is about to start, not left in a file
    nobody opens. */
-function prepCard(r){var p=prepOf(r);
- return '<div class="card"><h2>How this batch starts</h2>'+
-  '<p class="req" style="font-size:19px">'+esc(p.how)+'</p>'+
-  '<p class="req">Then pasteurize: hold 10 minutes, 72 \u00B0C at the mid '+
-  'reading and 72 \u00B0C at the end.</p></div>'}
+function prepCard(r){
+ var p=prepOf(r),st=stagesOf(r),open=stageOpen(r);
+ var rows=st.map(function(x,i){
+  var lab=x.title+(x.kind==='temp'?(' \u2014 '+fmtNum(x.min_c)+' \u00B0C'):
+   x.kind==='steep'?(' \u2014 '+fmtNum(x.minutes)+' min'):
+   x.kind==='hold'?(' \u2014 10 min, 72 \u00B0C mid and end'):'');
+  var state=i<open?'done':(i===open?'now':'');
+  return '<div class="step"><div class="snum '+state+'">'+(i+1)+'</div>'+
+   '<div style="flex:1"><div class="stitle">'+esc(lab)+'</div>'+
+   (i===open?'<div class="req">you are here</div>':'')+'</div></div>'}).join('');
+ return '<div class="card"><h2>'+esc(p.label)+'</h2>'+
+  '<p class="req">These are the stages for this recipe, in order. The last one '+
+  'is the same for every product.</p>'+rows+'</div>'}
 function needSteep(r){var p=prepOf(r);
  return p.mode==='steep'&&p.temp>0&&p.mins>0&&!S.batch.steep_at}
 
@@ -921,7 +960,7 @@ function screenSteep(){
      if(left()>0&&!confirm('The steep still has '+mmss(left())+' left.\n\n'+
       'Move on anyway? The time actually steeped goes on the report.'))return;
      b.steep_at=nowISO();b.steep_actual=Math.round((total-left())/60*10)/10;
-     b.step='prep';save();screenPrep()}]]);
+     b.step='cook';save();runStages(recipes()[b.i])}]]);
  }
  steepDraw=draw;
  draw()}
@@ -1011,20 +1050,26 @@ var TSTEPS=[
 ];
 
 function screenCook(){
- var r=recipes()[S.batch.i],mins=cookMin(r),total=mins*60,b=S.batch;
+ var r=recipes()[S.batch.i],mins=10,total=mins*60,b=S.batch;
  $('#hdr').innerHTML=esc(rName(r))+'<br>LOT '+esc(b.lot);
  function left(){return b.t0?Math.max(0,total-Math.floor((Date.now()-b.t0)/1000)):total}
  function halfDone(){return b.t0&&left()<=Math.floor(total/2)}
  function timeUp(){return b.t0&&left()===0}
  var pm1=premix(r,1),pm2=premix(r,2);
+ /* WHICH READING IS OPEN comes from the recipe's own stage list. A reading
+    stays shut until every stage before it is done - so a concentrate cannot
+    reach its second reading before the basket filter, the steeping and the
+    vat additions have each been confirmed, and a syrup is never asked for a
+    pre-mix it does not have. */
  function openStep(){
-  if(b.t1==null)return 1;
-  /* the 1st Pre-Mix happens BETWEEN the two readings, so the second one
-     stays shut until the staff have confirmed those steps */
-  if(pm1.length&&!b.pm1ok)return 0;
-  if(b.t2==null)return 2;
-  if(b.t3==null)return halfDone()?3:0;
-  if(b.t4==null)return timeUp()?4:0;
+  var st=stagesOf(r),i=stageOpen(r);
+  if(i>=st.length)return 0;
+  var cur=st[i];
+  if(cur.kind==='temp')return cur.slot==='initial'?1:2;
+  if(cur.kind==='hold'){
+   if(b.t3==null)return halfDone()?3:0;
+   if(b.t4==null)return timeUp()?4:0;
+  }
   return 0}
 
  function card(st){
@@ -1113,12 +1158,14 @@ function screenCook(){
    if(tick){clearInterval(tick);tick=null}screenClose()}]])}
 
 function recTemp(n){
- var st=TSTEPS[n-1],b=S.batch,
-     el=$('#ti'+n),er=$('#te'+n),t=num(el?el.value:'');
+ var st=TSTEPS[n-1],b=S.batch,r0=recipes()[S.batch.i],
+     el=$('#ti'+n),er=$('#te'+n),t=num(el?el.value:''),
+     /* the RECIPE's target for the two readings; the hold stays fixed */
+     mn=(n===1||n===2)?gateMin(st,r0):st.min;
  if(!t){er.textContent='Enter the thermometer reading.';return}
  if(t>130){er.textContent=t+' \u00B0C looks like a typo \u2014 check the reading.';return}
- if(st.min!=null&&t<st.min){
-  er.textContent='Only '+t+' \u00B0C \u2014 below the required '+st.min+
+ if(mn!=null&&t<mn){
+  er.textContent='Only '+t+' \u00B0C \u2014 below the required '+mn+
    ' \u00B0C. Keep heating and read again.';el.value='';return}
  if(st.max!=null&&t>st.max){
   er.textContent=t+' \u00B0C is above the '+st.max+' \u00B0C limit. '+
@@ -1126,14 +1173,26 @@ function recTemp(n){
  if(!confirm('Record '+t+' \u00B0C for '+st.title+'?\n\nThis cannot be changed.'))return;
  b[st.key]=t;b[st.key+'_at']=nowISO();save();
  var r=recipes()[S.batch.i];
- if(n===1){
-  var p1=premix(r,1);
-  if(p1.length&&!b.pm1ok){showPremix(1,p1,function(){b.pm1ok=1;save();screenCook()});return}
- }
- if(n===2){
-  var p2=premix(r,2);
-  if(p2.length&&!b.pm2ok){showPremix(2,p2,function(){b.pm2ok=1;save();screenCook()});return}
- }
+ runStages(r);}
+
+/* Walk the recipe's stages until one needs the operator. Popups and the
+   steeping timer live here, so the ORDER is whatever GOOS sent - the tablet
+   does not know which product family it is looking at. */
+function runStages(r){
+ var b=S.batch,st=stagesOf(r),i=stageOpen(r);
+ if(i>=st.length){screenCook();return}
+ var cur=st[i];
+ if(cur.kind==='popup'){
+  var steps=premix(r,cur.group);
+  if(!steps.length){b['pop'+cur.group]=1;save();runStages(r);return}
+  showPremix(cur.group,steps,function(){
+   b['pop'+cur.group]=1;
+   /* the old flags, so a batch already part-way through still lines up */
+   if(cur.group===1)b.pm1ok=1;
+   if(cur.group===2)b.pm2ok=1;
+   save();runStages(r)});
+  return}
+ if(cur.kind==='steep'){b.step='steep';save();screenSteep();return}
  screenCook()}
 
 /* ================= 6. INCIDENTS + SIGN-OFF ================= */
