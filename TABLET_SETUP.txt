@@ -98,6 +98,23 @@ The app still runs every batch correctly this way. Finished reports go
 out through the share sheet (share to OneDrive, email, or whatever the
 tablet has) rather than being written into the folder for you.
 
+WHEN GOOS IS UPDATED - HOW THE TABLET PICKS IT UP
+-------------------------------------------------
+1. In GOOS press "Set up tablet app".
+2. Upload the files from the "App files" folder to GitHub, replacing
+   the old ones.
+3. On the tablet, open the app WITH SIGNAL. The page itself is fetched
+   fresh whenever there is signal, so the new version is there
+   immediately - you do not have to close and reopen.
+4. Check the version. It is shown on the batch list and in the corner
+   of the Cooking screen. If it does not match the version GOOS just
+   wrote, the upload has not gone through yet.
+
+If the tablet has NO signal it keeps working from the copy it already
+has - that is deliberate, and it is why the version number is on
+screen where the work happens.
+
+
 DAILY USE (either route)
 ------------------------
 1. In GOOS: Schedule Production -> "Send recipes to the tablet". That
