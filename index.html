@@ -141,7 +141,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='2.73.0';
+var APPVER='2.74.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -1100,7 +1100,11 @@ function screenCook(){
      '-minute hold</button>':'');
 
  var steps=procOf(r);
- $('#app').innerHTML='<div class="card"><h2>Cooking &amp; pasteurization</h2>'+
+ /* the build number, where the work actually happens - so a stale cached app
+    is obvious at a glance instead of being mistaken for a broken feature */
+ $('#app').innerHTML='<div class="card"><h2>Cooking &amp; pasteurization'+
+  '<span style="float:right;font-size:12px;opacity:.6">v'+esc(APPVER)+'</span>'+
+  '</h2>'+
   '<div class="req">'+esc(rName(r))+' &middot; LOT '+esc(b.lot)+'</div>'+
   '<p class="req">Four readings, in order. Each one is final once recorded.</p>'+
   card(TSTEPS[0])+card(TSTEPS[1])+timerHTML+card(TSTEPS[2])+card(TSTEPS[3])+
