@@ -141,7 +141,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='2.72.0';
+var APPVER='2.73.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -1156,6 +1156,23 @@ function screenCook(){
    if(b.t4==null){$('#e').textContent='Record the last 5 minute reading.';return}
    b.step='close';save();
    if(tick){clearInterval(tick);tick=null}screenClose()}]])}
+
+function gateMin(st,r){
+ /* The RECIPE's target for the two readings; the hold is fixed. A target of 0
+    means "record it, but there is nothing to check it against" - the reading
+    is still taken and still goes on the report.
+
+    THIS WAS MISSING: recTemp called it, so pressing Record threw a
+    ReferenceError and the button looked dead. A call to a function that does
+    not exist is silent in a browser until somebody presses the thing. */
+ var sl=stagesOf(r);
+ for(var i=0;i<sl.length;i++){
+  var x=sl[i];
+  if(x.kind==='temp'&&((st.key==='t1'&&x.slot==='initial')||
+                       (st.key==='t2'&&x.slot==='secondary')))
+   return x.min_c>0?x.min_c:null;
+ }
+ return st.min}
 
 function recTemp(n){
  var st=TSTEPS[n-1],b=S.batch,r0=recipes()[S.batch.i],
