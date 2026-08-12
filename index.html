@@ -141,7 +141,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='2.73.0';
+var APPVER='2.75.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -600,7 +600,8 @@ function screenList(){
      would notice. */
   '<div class="dest">Tablet clock: <b>'+esc(clockNow())+'</b> \u2014 tell the '+
   'office if that is not the time right now</div>'+
-  '<div class="dest">App version <b>'+esc(APPVER)+'</b></div></div>'+
+  '<div class="dest">App version <b>'+esc(APPVER)+'</b> \u2014 tell the office '+
+  'if this is not the version they just sent</div></div>'+
   '<div class="card">'+(rows||'<p class="req">No recipes in this schedule.</p>')+'</div>'+
   '<div class="card"><button class="ghost" onclick="newSched()">Load another schedule</button>'+
   '<button class="ghost" onclick="screenFolders()">Change the folders</button>'+
