@@ -141,7 +141,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='2.77.0';
+var APPVER='3.8.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -1269,6 +1269,15 @@ function screenClose(){var b=S.batch,r=recipes()[b.i];
   '<label>1L bottles</label>'+
   '<input id="y1" inputmode="numeric" autocomplete="off" value="'+
   esc(b.y1==null?'':b.y1)+'">'+
+  /* WHICH 1L BOTTLE. Round and square are different stock items, so the
+     count alone cannot say what to take off the shelf. Asked right beside
+     the count, at sign-off, by the person who just packed them. */
+  '<label>1L bottle type</label>'+
+  '<select id="y1t">'+
+  ['Round','Square'].map(function(o){
+   return '<option value="'+o+'"'+((b.y1t||'Round')===o?' selected':'')+'>'+
+    o+'</option>'}).join('')+
+  '</select>'+
   '<label>300ml bottles</label>'+
   '<input id="y3" inputmode="numeric" autocomplete="off" value="'+
   esc(b.y3==null?'':b.y3)+'">'+
@@ -1285,6 +1294,10 @@ function screenClose(){var b=S.batch,r=recipes()[b.i];
    if(!v1&&!v3&&!confirm('No bottle yield entered.\n\nSave the report without '+
     'it?'))return;
    b.y1=v1===''?null:num(v1);b.y3=v3===''?null:num(v3);
+   /* Only meaningful when 1L bottles were actually filled - a type on a
+      batch that filled none would read as a packaging run that never
+      happened. */
+   b.y1t=v1===''?'':(($('#y1t')||{}).value||'Round');
    b.inc=$('#inc').value.trim();b.sig=sg;saveReport()}]])}
 
 /* ================= 7. PDF ENGINE =================
@@ -1451,6 +1464,7 @@ function reportObject(){
   /* null, not 0: "not filled" and "filled none" are different facts, and
      only the first should be left out of a yield average. */
   yield_1l_bottles:(b.y1==null?'':b.y1),
+  yield_1l_type:(b.y1==null?'':(b.y1t||'Round')),
   yield_300_bottles:(b.y3==null?'':b.y3),
   ingredients:ings(r).map(function(g,j){
    var req=iReq(g),act=num(b.act[j]);
@@ -1472,7 +1486,7 @@ var CSVCOLS=['report_format','schedule_ref','prod_date','shift','product',
  'seq','stage','ingredient_code','unit','required_qty','actual_qty',
  'variance_qty','variance_pct','grade',
  'voided','void_reason','void_by','void_at','void_verified',
- 'yield_1l_bottles','yield_300_bottles',
+ 'yield_1l_bottles','yield_300_bottles','yield_1l_type',
  'steep_temp_c','steep_temp_at','steep_minutes','steep_started_at'];
 
 function csvCell(v){
@@ -1500,6 +1514,7 @@ function reportCSV(R){
    R.void_verified||'',
    R.yield_1l_bottles===''||R.yield_1l_bottles==null?'':R.yield_1l_bottles,
    R.yield_300_bottles===''||R.yield_300_bottles==null?'':R.yield_300_bottles,
+   R.yield_1l_type||'',
    R.steep_temp_c,R.steep_temp_at,R.steep_minutes,R.steep_started_at])
    .map(csvCell).join(','));
  });
@@ -1576,7 +1591,8 @@ function reportPDF(R){
   d.need(30);
   var yl=[];
   if(R.yield_1l_bottles!==''&&R.yield_1l_bottles!=null)
-   yl.push(R.yield_1l_bottles+'  x 1L');
+   yl.push(R.yield_1l_bottles+'  x 1L'+
+    (R.yield_1l_type?' ('+R.yield_1l_type+')':''));
   if(R.yield_300_bottles!==''&&R.yield_300_bottles!=null)
    yl.push(R.yield_300_bottles+'  x 300ml');
   d.rect(d.ML,d.y(),d.inner,30,SOFT);

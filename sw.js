@@ -2,7 +2,7 @@
 // served over http(s) - a browser will not run a service worker for a page
 // opened straight off local storage, which is fine because a local file is
 // already offline.
-var CACHE = 'goos-tablet-2.77.0';
+var CACHE = 'goos-tablet-3.8.0';
 var SHELL = ['index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', function (e) {
