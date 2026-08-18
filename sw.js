@@ -2,7 +2,7 @@
 // served over http(s) - a browser will not run a service worker for a page
 // opened straight off local storage, which is fine because a local file is
 // already offline.
-var CACHE = 'goos-tablet-3.8.0';
+var CACHE = 'goos-tablet-3.10.0';
 var SHELL = ['index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', function (e) {
@@ -31,6 +31,20 @@ self.addEventListener('activate', function (e) {
 // that had definitely shipped looked like it had not. Now, with signal, the
 // page is fetched fresh; with no signal it falls straight back to the cached
 // copy, so the commissary still works offline.
+/* Tapping the timer notification brings the app forward instead of opening a
+   second copy - a duplicate tab would have its own idea of the batch, which
+   is the one thing worse than a missed alarm. */
+self.addEventListener('notificationclick', function (e) {
+  e.notification.close();
+  e.waitUntil(clients.matchAll({type: 'window', includeUncontrolled: true})
+    .then(function (list) {
+      for (var i = 0; i < list.length; i++) {
+        if ('focus' in list[i]) return list[i].focus();
+      }
+      if (clients.openWindow) return clients.openWindow('./');
+    }));
+});
+
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
   var isPage = e.request.mode === 'navigate' ||

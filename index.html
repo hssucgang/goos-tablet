@@ -141,7 +141,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.8.0';
+var APPVER='3.10.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -1160,7 +1160,7 @@ function screenCook(){
     'Take the reading for the first 5 minutes now. It should be 80 \u00B0C.',
     pad(Math.floor(total/120))+':00 left');}
   if(b.t0&&!b.almEnd&&timeUp()){
-   b.almEnd=1;save();
+   b.almEnd=1;save();keepAwake(false);
    startAlarm('end','The '+mins+'-minute hold is done',
     'Bring it down and take the last reading now. It should be 72 \u00B0C.',
     '00:00');}
@@ -1170,11 +1170,22 @@ function screenCook(){
 
  if($('#go'))$('#go').onclick=function(){
   armAudio();
-  b.t0=Date.now();b.t0_at=nowISO();b.almHalf=0;b.almEnd=0;save();screenCook()};
+  b.t0=Date.now();b.t0_at=nowISO();b.almHalf=0;b.almEnd=0;save();
+  /* Asked for at the moment it becomes useful, not on first launch where it
+     is one more thing to dismiss before the shift starts. */
+  askNotify();keepAwake(true);
+  screenCook()};
 
  draw();if(!gated&&b.t0&&!tick)tick=setInterval(draw,1000);
  document.addEventListener('visibilitychange',function(){
-  if(!document.hidden&&$('#clock'))draw()});
+  /* Coming back from another app: recompute at once rather than waiting up to
+     a second for the next tick, so an alarm that came due while away is on
+     screen before the operator has finished looking at the tablet. The
+     interval is also restarted - Android suspends it while hidden. */
+  if(!document.hidden&&$('#clock')){
+   draw();
+   if(!gated&&b.t0&&!timeUp()&&!tick)tick=setInterval(draw,1000);
+  }});
 
  bar([['Override',function(){if(tick){clearInterval(tick);tick=null}stopAlarm();
    screenOverride()},'ghost'],
@@ -1781,6 +1792,11 @@ function startAlarm(kind,title,msg,big){
  $('#alarmwrap').className='on';
  bindStop();
  armAudio();burst(kind);
+ /* The system notification is what reaches the operator when the tablet is
+    showing something else. Raised for BOTH marks, not just the end - the half
+    mark is a reading that has to be taken on time to be worth taking. */
+ notify(kind==='end'?'HOLD COMPLETE - '+title:'HALF WAY - '+title,
+  msg,'goos-'+kind);
  /* Keep sounding until somebody stops it - a missed pasteurization gate
     matters more than a quiet commissary. It goes quiet on its own after two
     minutes so a tablet left alone overnight does not ring forever, but the
@@ -1798,6 +1814,65 @@ document.addEventListener('keydown',function(e){
  if(e.key==='Escape'||e.key==='Enter')stopAlarm()});
 if($('#alarmwrap'))$('#alarmwrap').onclick=function(e){
  if(e.target&&e.target.id==='alarmwrap')stopAlarm()};
+
+/* ================= running while another app is open =================
+   HONEST LIMIT FIRST: a web app cannot draw over other Android apps. Nothing
+   here can make the timer float on top of Chrome or a calculator - that is an
+   OS permission the browser does not give web content, and any claim
+   otherwise would be a promise the tablet cannot keep.
+
+   What it CAN do, and now does:
+     - the timer is measured from a SAVED TIMESTAMP, so it keeps true time
+       while the app is in the background, asleep, or closed entirely;
+     - a SYSTEM NOTIFICATION at the half mark and at the end, which Android
+       shows over whatever is on screen, with sound and vibration;
+     - a WAKE LOCK while a hold is running, so the screen does not sleep and
+       the app stays where the operator left it;
+     - on coming back, the elapsed time is recomputed and the full-screen
+       alarm appears immediately for anything that fired while away.
+   Together these mean staff can use the calculator or a browser mid-hold and
+   still be pulled back the moment a reading is due. */
+var WAKE=null;
+
+function keepAwake(on){
+ try{
+  if(on&&!WAKE&&navigator.wakeLock&&navigator.wakeLock.request){
+   navigator.wakeLock.request('screen').then(function(w){
+    WAKE=w;
+    w.addEventListener('release',function(){WAKE=null});
+   })['catch'](function(){});
+  }else if(!on&&WAKE){WAKE.release();WAKE=null}
+ }catch(e){}
+}
+/* Re-taken on return: Android drops the lock whenever the page is hidden, so
+   without this the screen would sleep after the first trip to another app. */
+document.addEventListener('visibilitychange',function(){
+ if(!document.hidden&&S.batch&&S.batch.t0&&!S.batch.almEnd)keepAwake(true)});
+
+function askNotify(){
+ try{
+  if(window.Notification&&Notification.permission==='default')
+   Notification.requestPermission()['catch'](function(){});
+ }catch(e){}
+}
+
+function notify(title,body,tag){
+ /* Through the service worker when there is one - on Android a notification
+    raised straight from the page is dismissed with the page, which is exactly
+    the case this exists for. */
+ try{
+  if(!window.Notification||Notification.permission!=='granted')return;
+  var opts={body:body,tag:tag||'goos-timer',renotify:true,requireInteraction:true,
+   vibrate:[400,200,400,200,600],icon:'icon-192.png',badge:'icon-192.png'};
+  if(navigator.serviceWorker&&navigator.serviceWorker.ready){
+   navigator.serviceWorker.ready.then(function(reg){
+    if(reg&&reg.showNotification)reg.showNotification(title,opts);
+    else new Notification(title,opts);
+   })['catch'](function(){try{new Notification(title,opts)}catch(e){}});
+  }else{new Notification(title,opts)}
+ }catch(e){}
+ try{if(navigator.vibrate)navigator.vibrate([400,200,400,200,600])}catch(e){}
+}
 
 function stopAlarm(quiet){
  if(ALARM.t){clearInterval(ALARM.t);ALARM.t=null}
