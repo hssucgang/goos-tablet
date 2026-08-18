@@ -141,7 +141,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.10.0';
+var APPVER='3.10.1';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -285,18 +285,27 @@ function pickDir(which,cb){
 /* --- find today's schedule in that folder, newest first ---------------- */
 function isSchedName(n){return /^PROD_TODAY_.*\.json$/i.test(n)||
  /^GOOS_PRODUCTION_.*\.json$/i.test(n)}
+/* A remembered folder handle loses its permission whenever the browser is
+   restarted, and reading it then REJECTS. The old code caught that and
+   reported an empty folder, so "Load today's schedule" said "No schedule file
+   in that folder yet" when the file was sitting right there - staff went
+   looking for a missing file instead of tapping once to re-allow the folder.
+   The reason is now carried back with the result. */
 function schedFiles(cb){
- if(!DIR||!DIR.values){cb([]);return}
- var out=[],it=DIR.values();
+ if(!DIR||!DIR.values){cb([],'nofolder');return}
+ var out=[],it=DIR.values(),failed=false;
  function step(){it.next().then(function(r){
-  if(r.done){cb(out);return}
+  if(r.done){cb(out,null);return}
   var e=r.value;
   if(e.kind==='file'&&isSchedName(e.name))out.push(e);
-  step()}).catch(function(){cb(out)})}
+  step()}).catch(function(err){
+   failed=true;
+   cb(out,(err&&(err.name==='NotAllowedError'||err.name==='SecurityError'))
+    ?'denied':'unreadable')})}
  step()}
 function newestSched(cb){
- schedFiles(function(list){
-  if(!list.length){cb(null);return}
+ schedFiles(function(list,why){
+  if(!list.length){cb(null,why||'empty');return}
   var files=[],i=0;
   function step(){
    if(i>=list.length){
@@ -307,12 +316,15 @@ function newestSched(cb){
     .catch(step)}
   step()})}
 function loadNewest(cb){
- newestSched(function(f){
-  if(!f){cb(null);return}
+ newestSched(function(f,why){
+  if(!f){cb(null,why||'empty');return}
   var rd=new FileReader();
+  /* A file that is there but unreadable is a DIFFERENT problem from no file,
+     and the two used to look identical on screen. */
   rd.onload=function(){try{var j=JSON.parse(rd.result);
-   if(!pick(j,['recipes','lines','items'],[]).length)throw 0;cb(j)}catch(x){cb(null)}};
-  rd.onerror=function(){cb(null)};
+   if(!pick(j,['recipes','lines','items'],[]).length)throw 0;cb(j,null)}
+   catch(x){cb(null,'badfile')}};
+  rd.onerror=function(){cb(null,'unreadable')};
   rd.readAsText(f)})}
 
 /* Adopting a schedule keeps this shift's progress when it is the SAME
@@ -555,11 +567,44 @@ function lookAgain(){autoLoad(true)}
 /* Read the newest schedule out of the remembered folder. `manual` means the
    operator asked, so say plainly when nothing is there rather than falling
    back silently. */
+var LOADMSG={
+ denied:'This tablet needs permission to open that folder again - it is asked '+
+  'for once each time the browser restarts. Tap "Load today\u2019s schedule" '+
+  'once more and choose Allow.',
+ nofolder:'No schedules folder is set on this tablet yet. Use "Change the '+
+  'folders" below.',
+ unreadable:'The folder could not be read. Check OneDrive has finished syncing, '+
+  'then tap again.',
+ badfile:'A schedule file is there but it could not be read - it may still be '+
+  'downloading. Wait a moment and tap again, or ask the office to send it again.',
+ empty:'No schedule file in that folder yet.'};
+
 function autoLoad(manual){
  splash('Looking for today\u2019s schedule\u2026');
- loadNewest(function(j){
-  if(!j){screenLoad();
-   if(manual&&$('#de'))$('#de').textContent='No schedule file in that folder yet.';
+ /* NEVER LEAVE THE SPLASH UP. It hides the button bar, so if the folder read
+    hung - which a lapsed permission prompt can do - the tablet was stuck on
+    "Looking..." with no way back except killing the app. */
+ var settled=false;
+ var bail=setTimeout(function(){
+  if(settled)return;
+  settled=true;screenLoad();
+  if($('#de'))$('#de').textContent='That folder did not answer. Tap again, and '+
+   'choose Allow if the tablet asks for permission.';
+ },12000);
+ loadNewest(function(j,why){
+  if(settled)return;
+  settled=true;clearTimeout(bail);
+  if(!j){
+   /* A lapsed permission is re-askable, and asking is the fix - so offer the
+      tap rather than reporting a missing file that is not missing. */
+   if(why==='denied'&&DIR&&DIR.requestPermission){
+    grantDir([['dir',DIR]],function(ok){
+     if(ok){autoLoad(manual);return}
+     screenLoad();
+     if($('#de'))$('#de').textContent=LOADMSG.denied});
+    return}
+   screenLoad();
+   if(manual&&$('#de'))$('#de').textContent=LOADMSG[why]||LOADMSG.empty;
    return}
   adoptSched(j);pendingSched=null;screenList()})}
 
