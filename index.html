@@ -33,6 +33,14 @@ button:disabled{opacity:.45}
 .rec{font-size:15px;font-weight:800;color:#55607A;margin-top:8px;letter-spacing:.06em}
 .icode{font-weight:800;font-size:24px;line-height:1.25;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .needband{margin:10px 0 12px;background:#FBEFD3;border:2px solid var(--wheat);border-radius:12px;padding:12px 14px}
+/* The packing note. Deliberately the loudest thing on the screen after the
+   readings themselves - it is an instruction, and an instruction that looks
+   like a caption gets skipped. Navy rather than wheat so it is not mistaken
+   for a reading that needs recording. */
+.packnote{margin:10px 0 14px;background:#1B2A4A;border-radius:12px;padding:12px 14px;color:#fff}
+.packlab{font-size:12px;font-weight:800;letter-spacing:.12em;opacity:.75;text-transform:uppercase}
+.packval{font-size:26px;font-weight:800;margin-top:2px;line-height:1.2}
+.packsub{font-size:12px;opacity:.8;margin-top:6px;line-height:1.35}
 .needlab{font-size:14px;font-weight:800;letter-spacing:.1em;color:#7A5B12;text-transform:uppercase}
 .needval{font:800 40px/1.1 ui-monospace,'DejaVu Sans Mono',monospace;color:#1F2A4A;letter-spacing:1px;margin-top:2px}
 .needval .u{font-size:24px;font-weight:700;margin-left:8px;letter-spacing:0}
@@ -141,7 +149,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.24.0';
+var APPVER='3.25.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -387,6 +395,24 @@ function verifyWritten(D,files,done,fail){
 /* ---- schedule readers ---- */
 function recipes(){return pick(S.sched,['recipes','lines','items'],[])}
 function rName(r){return pick(r,['name','recipe','recipe_name','product'],'Recipe')}
+
+/* THE PACKING NOTE - what the office asked to be filled, in bottles.
+   It was already travelling in the schedule file but was never shown, so the
+   operator had to be told separately what to pack. Rendered from the same
+   data on BOTH screens: at the start, so the bottles are ready before the
+   batch is going; and again at sign-off, right beside the actual count, so
+   the two numbers can be compared while the person who counted is standing
+   there.
+   Returns '' when the office left the note blank - an empty box is not a
+   target of zero, and printing "0 bottles" would read as an instruction. */
+function packNote(r){
+ var p=r&&(r.packing_note||r.packingNote);if(!p)return '';
+ var a=num(p.bottles_1L),b=num(p.bottles_300ml),bits=[];
+ if(a>0)bits.push('<b>'+esc(String(a))+'</b> x 1L');
+ if(b>0)bits.push('<b>'+esc(String(b))+'</b> x 300ml');
+ if(!bits.length)return '';
+ return bits.join(' &nbsp;&middot;&nbsp; ');
+}
 function ings(r){return pick(r,['ingredients','components'],[])}
 function cookMin(r){return num(pick(r,['cook_minutes','operation_minutes','minutes'],0))||10}
 function prod(r,k,alt){var p=r&&r.produce;if(p&&p[k]!=null&&p[k]!=='')return p[k];return pick(r,alt,'')}
@@ -1180,6 +1206,10 @@ function screenCook(){
   '<span style="float:right;font-size:12px;opacity:.6">v'+esc(APPVER)+'</span>'+
   '</h2>'+
   '<div class="req">'+esc(rName(r))+' &middot; LOT '+esc(b.lot)+'</div>'+
+  (packNote(r)?'<div class="packnote"><div class="packlab">TO PACK</div>'+
+   '<div class="packval">'+packNote(r)+'</div>'+
+   '<div class="packsub">Have these ready \u2014 you will be asked for the '+
+   'actual count at sign-off.</div></div>':'')+
   '<p class="req">Four readings, in order. Each one is final once recorded.</p>'+
   card(TSTEPS[0])+card(TSTEPS[1])+timerHTML+card(TSTEPS[2])+card(TSTEPS[3])+
   '<div class="err" id="e"></div></div>';
@@ -1320,6 +1350,11 @@ function screenClose(){var b=S.batch,r=recipes()[b.i];
      is not a batch with zero 300ml, and the difference matters when these
      numbers are averaged into a real yield later. */
   '<div class="card"><h2>Actual bottle yield</h2>'+
+  (packNote(r)?'<div class="packnote"><div class="packlab">YOU WERE ASKED TO '+
+   'PACK</div><div class="packval">'+packNote(r)+'</div>'+
+   '<div class="packsub">Enter what was ACTUALLY filled below, even if it '+
+   'differs \u2014 the difference is the yield gap and it is meant to be '+
+   'recorded, not matched.</div></div>':'')+
   '<p class="req">How many bottles did this batch actually fill? Leave a box '+
   'empty if you did not fill that size at all.</p>'+
   '<label>1L bottles</label>'+
