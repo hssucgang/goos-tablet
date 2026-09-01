@@ -41,6 +41,12 @@ button:disabled{opacity:.45}
 .packlab{font-size:12px;font-weight:800;letter-spacing:.12em;opacity:.75;text-transform:uppercase}
 .packval{font-size:26px;font-weight:800;margin-top:2px;line-height:1.2}
 .packsub{font-size:12px;opacity:.8;margin-top:6px;line-height:1.35}
+/* The same note inline on the batch list. Boxed and labelled so it reads as
+   a separate instruction from the produce quantity next to it, not as a
+   continuation of it. */
+.packinline{display:inline-block;margin-left:10px;padding:2px 8px;border-radius:8px;
+background:#1B2A4A;color:#fff;font-size:13px;font-weight:700;white-space:nowrap}
+.packinlab{font-size:10px;font-weight:800;letter-spacing:.1em;opacity:.7;margin-right:6px}
 .needlab{font-size:14px;font-weight:800;letter-spacing:.1em;color:#7A5B12;text-transform:uppercase}
 .needval{font:800 40px/1.1 ui-monospace,'DejaVu Sans Mono',monospace;color:#1F2A4A;letter-spacing:1px;margin-top:2px}
 .needval .u{font-size:24px;font-weight:700;margin-left:8px;letter-spacing:0}
@@ -149,7 +155,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.25.0';
+var APPVER='3.26.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -680,8 +686,17 @@ function screenList(){
     : '<span class="tag PASS">SENT</span>')
              :'<button style="margin:0;width:auto;padding:14px 24px" onclick="start('+i+')">Start</button>';
   return'<div class="item '+(d?'done':'')+'"><div class="row" style="align-items:center">'+
+   /* THE PACKING NOTE sits beside the produce quantity, on the batch list -
+      the screen the operator is looking at BEFORE choosing what to start.
+      What to produce and what to pack are two different numbers (a 44 x 1L
+      batch can be asked to fill 40 x 1L and 12 x 300ml), so they are shown
+      side by side and clearly labelled rather than merged into one line
+      that could be read as either. Omitted entirely when the office left
+      the note blank - see packNote(). */
    '<div><div class="name">'+esc(rName(r))+'</div><div class="req">'+
-   esc(pQty(r))+' &times; '+esc(pSize(r))+(d?' &middot; LOT '+esc(d.lot):'')+'</div></div>'+
+   esc(pQty(r))+' &times; '+esc(pSize(r))+(d?' &middot; LOT '+esc(d.lot):'')+
+   (packNote(r)?'<span class="packinline"><span class="packinlab">PACK</span>'+
+    packNote(r)+'</span>':'')+'</div></div>'+
    '<div style="flex:0 0 auto">'+right+'</div></div></div>'}).join('');
  var notes=pick(s,['notes'],'');
  $('#app').innerHTML=warn+'<div class="card"><h2>Today\'s batches</h2>'+
