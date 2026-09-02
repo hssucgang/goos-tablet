@@ -47,6 +47,25 @@ button:disabled{opacity:.45}
 .packinline{display:inline-block;margin-left:10px;padding:2px 8px;border-radius:8px;
 background:#1B2A4A;color:#fff;font-size:13px;font-weight:700;white-space:nowrap}
 .packinlab{font-size:10px;font-weight:800;letter-spacing:.1em;opacity:.7;margin-right:6px}
+/* The QA gate. Full-screen and unmissable on purpose - it is a stop, not a
+   notice, and both ends of the hold use the identical size so neither reads
+   as the lesser one. */
+.qawrap{position:fixed;inset:0;background:rgba(12,18,32,.75);z-index:9999;
+display:flex;align-items:center;justify-content:center;padding:18px}
+.qabox{background:#fff;border-radius:18px;max-width:620px;width:100%;overflow:hidden;
+box-shadow:0 18px 60px rgba(0,0,0,.45)}
+.qahead{background:var(--wheat);color:#3B2B06;font-size:24px;font-weight:800;
+letter-spacing:.06em;padding:18px 22px}
+.qahead.ok{background:#1B2A4A;color:#fff}
+.qabody{padding:20px 22px 22px}
+.qamsg{font-size:21px;font-weight:700;margin:0 0 8px;line-height:1.3}
+.qasub{font-size:15px;color:#5E6C89;margin:0 0 14px;line-height:1.4}
+.qalab{display:block;font-size:13px;font-weight:800;letter-spacing:.08em;
+text-transform:uppercase;color:#5E6C89;margin-bottom:6px}
+.qainput{width:100%;font-size:22px;padding:14px;border:2px solid #CFC7B5;
+border-radius:12px;box-sizing:border-box}
+.qaerr{display:none;color:var(--fail);font-weight:700;margin-top:8px}
+.qabtn{margin-top:16px;font-size:20px;padding:18px}
 .needlab{font-size:14px;font-weight:800;letter-spacing:.1em;color:#7A5B12;text-transform:uppercase}
 .needval{font:800 40px/1.1 ui-monospace,'DejaVu Sans Mono',monospace;color:#1F2A4A;letter-spacing:1px;margin-top:2px}
 .needval .u{font-size:24px;font-weight:700;margin-left:8px;letter-spacing:0}
@@ -155,7 +174,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.26.0';
+var APPVER='3.29.0';
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -1260,11 +1279,19 @@ function screenCook(){
 
  if($('#go'))$('#go').onclick=function(){
   armAudio();
-  b.t0=Date.now();b.t0_at=nowISO();b.almHalf=0;b.almEnd=0;save();
-  /* Asked for at the moment it becomes useful, not on first launch where it
-     is one more thing to dismiss before the shift starts. */
-  askNotify();keepAwake(true);
-  screenCook()};
+  /* THE QA GATE. The hold timer does not start on the operator's word alone -
+     QA has to be standing there and has to name themselves first. The whole
+     point is that the product is actually CHECKED during the hold rather than
+     the hold simply elapsing, so the clock is deliberately tied to QA being
+     present: no name, no timer.
+     Their name and the moment they confirmed are both logged, so "QA checked
+     it" is a record rather than a claim. */
+  qaGate(function(){
+   b.t0=Date.now();b.t0_at=nowISO();b.almHalf=0;b.almEnd=0;save();
+   /* Asked for at the moment it becomes useful, not on first launch where it
+      is one more thing to dismiss before the shift starts. */
+   askNotify();keepAwake(true);
+   screenCook()})};
 
  draw();if(!gated&&b.t0&&!tick)tick=setInterval(draw,1000);
  document.addEventListener('visibilitychange',function(){
@@ -1572,6 +1599,14 @@ function reportObject(){
   yield_1l_bottles:(b.y1==null?'':b.y1),
   yield_1l_type:(b.y1==null?'':(b.y1t||'Round')),
   yield_300_bottles:(b.y3==null?'':b.y3),
+  /* WHO checked, and WHEN - at both ends of the hold. Sent as recorded,
+     with no pass/fail worked out here: the tablet's job is to witness, and
+     GOOS decides what counts as on time so the rule can be changed in one
+     place later. */
+  qa_start_by:b.qa_start_by||'',
+  qa_start_at:b.qa_start_at||'',
+  qa_end_by:b.qa_end_by||'',
+  qa_end_at:b.qa_end_at||'',
   ingredients:ings(r).map(function(g,j){
    var req=iReq(g),act=num(b.act[j]);
    return{stage:iStage(g),code:iName(g),uom:iUom(g),required:req,actual:act,
@@ -1593,6 +1628,7 @@ var CSVCOLS=['report_format','schedule_ref','prod_date','shift','product',
  'variance_qty','variance_pct','grade',
  'voided','void_reason','void_by','void_at','void_verified',
  'yield_1l_bottles','yield_300_bottles','yield_1l_type',
+ 'qa_start_by','qa_start_at','qa_end_by','qa_end_at',
  'steep_temp_c','steep_temp_at','steep_minutes','steep_started_at'];
 
 function csvCell(v){
@@ -1621,6 +1657,7 @@ function reportCSV(R){
    R.yield_1l_bottles===''||R.yield_1l_bottles==null?'':R.yield_1l_bottles,
    R.yield_300_bottles===''||R.yield_300_bottles==null?'':R.yield_300_bottles,
    R.yield_1l_type||'',
+   R.qa_start_by||'',R.qa_start_at||'',R.qa_end_by||'',R.qa_end_at||'',
    R.steep_temp_c,R.steep_temp_at,R.steep_minutes,R.steep_started_at])
    .map(csvCell).join(','));
  });
@@ -1969,10 +2006,79 @@ function notify(title,body,tag){
  try{if(navigator.vibrate)navigator.vibrate([400,200,400,200,600])}catch(e){}
 }
 
+/* ================= QA GATE =================
+   Two forced stops, one at each end of the hold:
+     START  - QA names themselves, and only then does the timer run.
+     FINISH - QA says whether the product may be bottled.
+   Both are logged with the name and the exact time, and both are deliberately
+   the same size and weight as each other so neither can be treated as the
+   small one that gets clicked through. */
+function qaModal(o){
+ var w=document.createElement('div');
+ w.className='qawrap';
+ w.innerHTML='<div class="qabox">'+
+  '<div class="qahead '+(o.tone||'')+'">'+esc(o.title)+'</div>'+
+  '<div class="qabody">'+
+   '<p class="qamsg">'+esc(o.msg)+'</p>'+
+   (o.sub?'<p class="qasub">'+esc(o.sub)+'</p>':'')+
+   (o.needName?'<label class="qalab">QA staff name</label>'+
+     '<input id="qaname" class="qainput" autocomplete="off" '+
+     'placeholder="Type your name">':'')+
+   '<div id="qaerr" class="qaerr"></div>'+
+   '<button id="qago" class="gold qabtn">'+esc(o.btn)+'</button>'+
+  '</div></div>';
+ document.body.appendChild(w);
+ var nm=$('#qaname');if(nm)setTimeout(function(){try{nm.focus()}catch(e){}},250);
+ $('#qago').onclick=function(){
+  var v=nm?(nm.value||'').trim():'';
+  if(o.needName&&v.length<2){
+   $('#qaerr').textContent='Enter the QA staff name to continue.';
+   $('#qaerr').style.display='block';if(nm)nm.focus();return}
+  w.parentNode.removeChild(w);
+  o.done(v)};
+}
+
+function qaGate(next){
+ var b=S.batch;
+ /* Already gated for this batch - re-entering the screen must not ask
+    again, and must not move the recorded time. */
+ if(b&&b.qa_start_at){next();return}
+ qaModal({
+  title:'START QA TESTING',
+  msg:'Alert QA to perform product testing.',
+  sub:'The 10-minute timer will start when QA confirms. It does not run '+
+      'until then, so nothing is lost by waiting for them to arrive.',
+  needName:true, btn:'Start Testing',
+  done:function(name){
+   if(b){b.qa_start_by=name;b.qa_start_at=nowISO();save()}
+   next()}});
+}
+
+function qaFinish(){
+ var b=S.batch;
+ if(!b||b.qa_end_at)return;
+ qaModal({
+  title:'CONFIRM WITH QA', tone:'ok',
+  msg:'Confirm with QA if the product will be bottled.',
+  sub:'QA should check the product now and give the go signal before '+
+      'packaging starts.',
+  needName:true, btn:'Confirm',
+  done:function(name){
+   b.qa_end_by=name;b.qa_end_at=nowISO();save();
+   if($('#clock'))screenCook()}});
+}
+
 function stopAlarm(quiet){
+ var wasEnd=(ALARM.kind==='end');
  if(ALARM.t){clearInterval(ALARM.t);ALARM.t=null}
  ALARM.kind=null;
  if(!quiet){var w=$('#alarmwrap');if(w)w.className=''}
+ /* The hold is over and the operator has silenced it - THIS is the moment QA
+    has to say whether it may be bottled, while the batch is still in front of
+    them. Only after the END alarm: the half-mark alarm is a reading, not a
+    decision. quiet=true means the alarm was cleared by code rather than by a
+    person, so nobody is standing there to ask. */
+ if(wasEnd&&!quiet)setTimeout(qaFinish,400);
 }
 /* Bound here AND on every open. The markup now sits above this script so the
    load-time bind works, but a food-safety alarm should not depend on document
