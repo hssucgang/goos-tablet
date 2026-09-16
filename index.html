@@ -174,7 +174,15 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.29.0';
+var APPVER='3.65.0';
+/* ASK THE BROWSER TO KEEP OUR DATA. Without this the browser is free to
+   clear the saved folder and this shift's progress whenever it wants to
+   reclaim space - which on a tablet that is closed and reopened all day looks
+   exactly like "it resets every time we exit". Installed apps are almost
+   always granted this; it is refused silently when not, so nothing depends
+   on it. */
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}
+catch(e){}
 var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
@@ -558,7 +566,19 @@ function screenFolders(first){
    'onclick="'+fn+'">'+btn+'</button></div></div></div>'}
  $('#app').innerHTML='<div class="card"><h2>Folders</h2>'+
   '<p class="req">Choose each folder once. This tablet remembers both, so every '+
-  'morning it opens straight onto the batches with nothing to pick.</p></div>'+
+  'morning it opens straight onto the batches with nothing to pick.</p>'+
+  /* THE ONE THING THAT DECIDES WHETHER IT STICKS. When the folder box
+     appears, Chrome offers "Allow this time" and "Allow on every visit".
+     Allow-this-time is dropped the moment the app is closed - which is why
+     an installed app that is opened and closed all day looks like it resets
+     every time. The choice is made in the browser's own box, so the app
+     cannot make it for the operator; all it can do is say so before the box
+     appears rather than after. */
+  '<p class="req" style="margin-top:8px;border-left:3px solid #C8A45C;'+
+  'padding-left:8px"><b>When the permission box appears, choose '+
+  '\u201cAllow on every visit\u201d</b> \u2014 not \u201cAllow this '+
+  'time\u201d. Allow-this-time is forgotten every time this app is closed, '+
+  'and the folder has to be picked again each morning.</p></div>'+
   row(1,'Schedules come FROM here',
       'The folder GOOS sends to. The app reads the newest '+
       '<b>PROD_TODAY_&hellip;.json</b> in it by itself.',
@@ -619,9 +639,11 @@ function lookAgain(){autoLoad(true)}
    operator asked, so say plainly when nothing is there rather than falling
    back silently. */
 var LOADMSG={
- denied:'This tablet needs permission to open that folder again - it is asked '+
-  'for once each time the browser restarts. Tap "Load today\u2019s schedule" '+
-  'once more and choose Allow.',
+ denied:'This tablet needs permission to open that folder again. Tap "Load '+
+  'today\u2019s schedule" once more, and when the box appears choose '+
+  '"Allow on every visit" - NOT "Allow this time". Allow-this-time is asked '+
+  'for again every single time the app is closed; allow-on-every-visit is '+
+  'asked once and remembered.',
  nofolder:'No schedules folder is set on this tablet yet. Use "Change the '+
   'folders" below.',
  unreadable:'The folder could not be read. Check OneDrive has finished syncing, '+
