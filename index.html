@@ -149,10 +149,17 @@ li{margin-bottom:10px;font-size:18px}
  background:var(--navy);color:#fff;font-size:24px;font-weight:800;
  display:flex;align-items:center;justify-content:center}
 #procbox li span{font-size:23px;line-height:1.4;color:var(--navy);font-weight:600}
+/* THE VERSION, ON EVERY SCREEN. It used to appear only on the folders
+   screen, so answering "which version is that tablet on?" meant walking over
+   and navigating there. Pinned to the right of the header it is readable from
+   across the room and never covers a control. */
+#ver{margin-left:auto;padding-left:10px;opacity:.75;white-space:nowrap;
+ font-variant-numeric:tabular-nums}
 #procdone{width:100%;margin-top:6px;padding:24px;font-size:25px;font-weight:800;
  border:none;border-radius:16px;background:var(--ok);color:#fff;cursor:pointer}
 </style></head><body>
-<header><b>GOOS &middot; Production</b><small id="hdr"></small></header>
+<header><b>GOOS &middot; Production</b><small id="hdr"></small>
+<small id="ver" title="Tablet app version"></small></header>
 <main id="app"></main>
 <div class="bar" id="bar" style="display:none"></div>
 <div id="procwrap"><div id="procbox">
@@ -174,7 +181,27 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.65.0';
+var APPVER='3.66.0';
+/* Paint the version into the header once, so it is on EVERY screen - the
+   header is the only element that survives every screen change. */
+try{var _v=document.getElementById('ver');
+ if(_v)_v.textContent='v'+APPVER}catch(e){}
+
+/* CAN THIS BROWSER REMEMBER A FOLDER AT ALL? Three different situations look
+   identical to the operator - "it asks every time" - and they need three
+   different answers:
+     no picker      the browser has no folder access (Android Chrome, Safari,
+                    any iPad). Folders can never be remembered here; the file
+                    button is the only route and that is not a fault.
+     no persistence the picker works but the browser will not keep the grant.
+     ok             it works, and a repeat prompt means "Allow this time" was
+                    chosen instead of "Allow on every visit".
+   Reporting which one it is turns "it keeps asking" into something with a
+   next step. */
+function folderSupport(){
+ if(typeof window.showDirectoryPicker!=='function')return 'nopicker';
+ if(!window.indexedDB)return 'nostore';
+ return 'ok'}
 /* ASK THE BROWSER TO KEEP OUR DATA. Without this the browser is free to
    clear the saved folder and this shift's progress whenever it wants to
    reclaim space - which on a tablet that is closed and reopened all day looks
@@ -578,7 +605,15 @@ function screenFolders(first){
   'padding-left:8px"><b>When the permission box appears, choose '+
   '\u201cAllow on every visit\u201d</b> \u2014 not \u201cAllow this '+
   'time\u201d. Allow-this-time is forgotten every time this app is closed, '+
-  'and the folder has to be picked again each morning.</p></div>'+
+  'and the folder has to be picked again each morning.<br><br>'+
+  'If the box offers no such choice, this browser cannot keep the '+
+  'permission at all \u2014 tap once each morning, or use the file button. '+
+  'It is not a fault in the tablet.</p>'+
+  '<p class="req" style="margin-top:8px;opacity:.8">This tablet: <b>v'+
+  esc(APPVER)+'</b> \u00b7 folder access <b>'+
+  ({nopicker:'not supported by this browser',
+    nostore:'cannot be remembered',
+    ok:'supported'}[folderSupport()])+'</b></p></div>'+
   row(1,'Schedules come FROM here',
       'The folder GOOS sends to. The app reads the newest '+
       '<b>PROD_TODAY_&hellip;.json</b> in it by itself.',
