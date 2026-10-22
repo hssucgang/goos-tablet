@@ -181,7 +181,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.66.0';
+var APPVER='3.99.15';
 /* Paint the version into the header once, so it is on EVERY screen - the
    header is the only element that survives every screen change. */
 try{var _v=document.getElementById('ver');
@@ -466,10 +466,11 @@ function rName(r){return pick(r,['name','recipe','recipe_name','product'],'Recip
    Returns '' when the office left the note blank - an empty box is not a
    target of zero, and printing "0 bottles" would read as an instruction. */
 function packNote(r){
- var p=r&&(r.packing_note||r.packingNote);if(!p)return '';
- var a=num(p.bottles_1L),b=num(p.bottles_300ml),bits=[];
+ var p=r&&(r.packing_note||r.packingNote),dd=r&&r.dedicated,bits=[];
+ if(p){var a=num(p.bottles_1L),b=num(p.bottles_300ml);
  if(a>0)bits.push('<b>'+esc(String(a))+'</b> x 1L');
- if(b>0)bits.push('<b>'+esc(String(b))+'</b> x 300ml');
+ if(b>0)bits.push('<b>'+esc(String(b))+'</b> x 300ml');}
+ if(dd&&dd.customer)bits.push('<b>DEDICATED: '+esc(String(num(dd.bottles)))+' bottles for '+esc(dd.customer)+'</b> - keep this batch together');
  if(!bits.length)return '';
  return bits.join(' &nbsp;&middot;&nbsp; ');
 }
@@ -614,6 +615,24 @@ function screenFolders(first){
   ({nopicker:'not supported by this browser',
     nostore:'cannot be remembered',
     ok:'supported'}[folderSupport()])+'</b></p></div>'+
+  '<div class="card"><div class="step"><div class="snum '+
+   (S.schedUrl?'done':'')+'">L</div><div style="flex:1">'+
+   '<div class="stitle">OneDrive link (works on any tablet)</div>'+
+   '<div class="req">In OneDrive, open the schedules folder, right-click '+
+   'today\u2019s file \u2192 <b>Share \u2192 Copy link</b>, and paste it '+
+   'here. The tablet then pulls the schedule over the internet with nothing '+
+   'to pick \u2014 this is the route for a tablet whose browser cannot open '+
+   'a folder. It needs signal; the folder route does not.</div>'+
+   '<input id="slink" placeholder="https://\u2026" value="'+
+   esc(S.schedUrl||'')+'" style="width:100%;margin-top:8px;padding:12px;'+
+   'font-size:18px;border:2px solid #C8D0E0;border-radius:10px">'+
+   '<button class="'+(S.schedUrl?'ghost':'gold')+'" style="margin-top:8px" '+
+   'onclick="saveLink()">'+(S.schedUrl?'Update the link':'Use this link')+
+   '</button>'+
+   (S.schedUrl?'<button class="ghost" style="margin-top:6px" '+
+    'onclick="clearLink()">Remove the link</button>':'')+
+   '<div class="err" id="lke"></div>'+
+   '</div></div></div>'+
   row(1,'Schedules come FROM here',
       'The folder GOOS sends to. The app reads the newest '+
       '<b>PROD_TODAY_&hellip;.json</b> in it by itself.',
@@ -633,6 +652,24 @@ function screenFolders(first){
  if(DIR)acts.push(['Look for today\u2019s schedule',function(){autoLoad(true)}]);
  if(!first)acts.push(['Back',function(){S.sched?screenList():screenLoad()},'ghost']);
  if(acts.length)bar(acts)}
+
+function saveLink(){
+ var el=document.getElementById('slink');
+ var v=el?String(el.value||'').trim():'';
+ var e=document.getElementById('lke');
+ if(!v){if(e)e.textContent='Paste the link first.';return}
+ if(v.slice(0,8)!=='https://'){
+  if(e)e.textContent='That does not look like a link - it should start with '+
+   'https://';return}
+ S.schedUrl=v;save();
+ if(e)e.textContent='Saved. Checking it now\u2026';
+ loadFromLink(function(j,why){
+  if(j){if(e)e.textContent='That link works - '+
+   pick(j,['recipes','lines','items'],[]).length+' recipe(s) found.';
+   screenFolders();return}
+  if(e)e.textContent=LOADMSG[why]||'That link could not be read.'})}
+
+function clearLink(){S.schedUrl=null;save();screenFolders()}
 
 function chooseIn(){pickDir('dir',function(ok,why){
  if(ok){autoLoad(true);return}
@@ -685,7 +722,55 @@ var LOADMSG={
   'then tap again.',
  badfile:'A schedule file is there but it could not be read - it may still be '+
   'downloading. Wait a moment and tap again, or ask the office to send it again.',
- empty:'No schedule file in that folder yet.'};
+ empty:'No schedule file in that folder yet.',
+ nolink:'No OneDrive link is set on this tablet yet.',
+ offline:'Could not reach OneDrive. Check the tablet has signal, then tap '+
+  'again - or use the file button below.',
+ linkpage:'That link opens the OneDrive web page instead of the file. In '+
+  'OneDrive use Share \u2192 Copy link, then paste it here again.'};
+
+/* ================= SCHEDULE BY LINK =================
+   A OneDrive SHARE LINK to the schedules folder's file, fetched over the
+   internet. This exists because the folder route needs a browser that can
+   open a folder - which Chrome on Android and every iPad cannot do - and on
+   those tablets there was no automatic route at all, only picking the file
+   by hand every morning.
+
+   A link is remembered like a folder is, so the tablet opens straight onto
+   the batches. It needs a signal; the folder route does not. Neither
+   replaces the other, and both fall back to the file button.
+
+   OneDrive share links open a PREVIEW PAGE, not the file. Appending
+   download=1 to a "1drv.ms" or "sharepoint.com" link returns the file
+   itself. Doing that conversion here means the operator can paste the link
+   exactly as OneDrive gave it to them. */
+function directLink(u){
+ u=String(u||'').trim();
+ if(!u)return '';
+ if(u.indexOf('download=1')>=0)return u;
+ if(u.indexOf('1drv.ms')>=0||u.indexOf('sharepoint.com')>=0||
+    u.indexOf('onedrive.live.com')>=0)
+  return u+(u.indexOf('?')>=0?'&':'?')+'download=1';
+ return u}
+
+function loadFromLink(cb){
+ var u=directLink(S.schedUrl);
+ if(!u){cb(null,'nolink');return}
+ var done=false;
+ var t=setTimeout(function(){if(!done){done=true;cb(null,'offline')}},15000);
+ try{
+  fetch(u,{cache:'no-store'}).then(function(r){
+   if(!r.ok)throw 0;return r.text()}).then(function(txt){
+   if(done)return;done=true;clearTimeout(t);
+   var j=null;try{j=JSON.parse(txt)}catch(x){}
+   /* A link that returns the OneDrive web PAGE rather than the file parses
+      as nothing useful - saying "that link gives a web page" is actionable,
+      "bad file" is not. */
+   if(!j||!pick(j,['recipes','lines','items'],[]).length){
+    cb(null,txt&&txt.indexOf('<html')>=0?'linkpage':'badfile');return}
+   cb(j,null)}).catch(function(){
+   if(done)return;done=true;clearTimeout(t);cb(null,'offline')})
+ }catch(e){if(!done){done=true;clearTimeout(t);cb(null,'offline')}}}
 
 function autoLoad(manual){
  splash('Looking for today\u2019s schedule\u2026');
@@ -699,7 +784,12 @@ function autoLoad(manual){
   if($('#de'))$('#de').textContent='That folder did not answer. Tap again, and '+
    'choose Allow if the tablet asks for permission.';
  },12000);
- loadNewest(function(j,why){
+ /* THE LINK FIRST when one is set, because a tablet that has a link
+    usually cannot use a folder at all. The folder is tried straight after,
+    so a device with both keeps working with no signal. */
+ var tryFolder=function(){
+  loadNewest(function(j,why){handle(j,why)})};
+ var handle=function(j,why){
   if(settled)return;
   settled=true;clearTimeout(bail);
   if(!j){
@@ -714,7 +804,15 @@ function autoLoad(manual){
    screenLoad();
    if(manual&&$('#de'))$('#de').textContent=LOADMSG[why]||LOADMSG.empty;
    return}
-  adoptSched(j);pendingSched=null;screenList()})}
+  adoptSched(j);pendingSched=null;screenList()};
+ if(S.schedUrl){
+  loadFromLink(function(j,why){
+   if(j){handle(j,null);return}
+   /* The link failed - fall through to the folder rather than stopping. A
+      tablet with no signal still has yesterday's folder. */
+   if(DIR){tryFolder();return}
+   handle(null,why)})}
+ else tryFolder()}
 
 function splash(msg){$('#bar').style.display='none';$('#hdr').textContent='';
  $('#app').innerHTML='<div class="card"><h2>'+esc(msg)+'</h2></div>'}
