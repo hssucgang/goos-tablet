@@ -181,7 +181,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.99.15';
+var APPVER='3.99.65';
 /* Paint the version into the header once, so it is on EVERY screen - the
    header is the only element that survives every screen change. */
 try{var _v=document.getElementById('ver');
@@ -198,6 +198,77 @@ try{var _v=document.getElementById('ver');
                     chosen instead of "Allow on every visit".
    Reporting which one it is turns "it keeps asking" into something with a
    next step. */
+/* THE GOOS SERVER (3.99.65). When GOOS stamps its server address in, the
+   tablet talks to the server directly: the schedule comes down and every
+   report goes up the moment it is saved, with no OneDrive folder, link or
+   share sheet in between. The tablet code - made in GOOS, typed in once -
+   is the only thing that lets a tablet in, and it reaches nothing but the
+   three tablet calls. */
+var SRV={url:'https://gfgavltifdkyzvmhyyim.supabase.co',key:'sb_publishable_CQ1ChWjD5ZPNlZZXCK71FA_704f-xRp'};
+function srvOn(){return !!(SRV.url&&SRV.key&&SRV.url.indexOf('__GOOS')<0&&
+ SRV.key.indexOf('__GOOS')<0)}
+function srvRpc(fn,args,cb){
+ var done=false;
+ var t=setTimeout(function(){if(!done){done=true;cb(null,'offline')}},11000);
+ try{
+  fetch(SRV.url.replace(/\/+$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',cache:'no-store',
+   headers:{'Content-Type':'application/json','apikey':SRV.key,
+            'Authorization':'Bearer '+SRV.key},
+   body:JSON.stringify(args)}).then(function(r){return r.json()}).then(function(j){
+   if(done)return;done=true;clearTimeout(t);
+   if(!j||j.ok!==true){cb(null,(j&&j.error)||'server');return}
+   cb(j,null)}).catch(function(){
+   if(done)return;done=true;clearTimeout(t);cb(null,'offline')})
+ }catch(e){if(!done){done=true;clearTimeout(t);cb(null,'offline')}}}
+/* Today's schedule wins; failing that the newest one GOOS sent, so a night
+   shift that runs past midnight still has its recipes. */
+function loadFromServer(cb){
+ if(!srvOn()||!S.tcode){cb(null,'nocode');return}
+ srvRpc('goos_t_schedule',{p_code:S.tcode},function(j,why){
+  if(!j){cb(null,why);return}
+  var it=j.items||[],today=todayStr(),best=null;
+  it.forEach(function(x){
+   if(!best&&x.payload&&String(pick(x.payload,['date'],'')).slice(0,10)===today)
+    best=x.payload});
+  if(!best&&it.length)best=it[0].payload;
+  if(!best){cb(null,'srvempty');return}
+  cb(best,null)})}
+function screenCode(msg){
+ $('#bar').style.display='none';$('#hdr').textContent='';
+ $('#app').innerHTML='<div class="card"><h2>Connect this tablet to GOOS</h2>'+
+  '<p class="req">Type the tablet code shown in GOOS (Production Schedule '+
+  '&rarr; <b>Tablet codes</b>). It is asked for once.</p>'+
+  '<input id="tc" autocomplete="off" autocapitalize="characters" '+
+  'style="font-size:22px;letter-spacing:3px;text-transform:uppercase;'+
+  'margin-top:10px;width:100%" value="'+esc(S.tcode||'')+'">'+
+  '<div class="err" id="ce">'+esc(msg||'')+'</div></div>';
+ bar([['Connect',function(){
+  var v=String(($('#tc')||{}).value||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  if(!v){$('#ce').textContent='Type the code first.';return}
+  $('#ce').textContent='Checking\u2026';
+  srvRpc('goos_t_status',{p_code:v},function(j,why){
+   if(!j){$('#ce').textContent=why==='code'?'GOOS does not know that code. '+
+     'Check it in GOOS and type it again.':'No connection to GOOS. Check the '+
+     'Wi-Fi and tap Connect again.';return}
+   S.tcode=v;save();autoLoad(true)})}]])}
+function screenServer(){
+ $('#bar').style.display='none';$('#hdr').textContent='';
+ var sc=pendingSched||S.sched;
+ $('#app').innerHTML='<div class="card"><h2>Today\u2019s schedule</h2>'+
+  (sc?'<div class="req">Loaded: <b>'+esc(pick(sc,['reference','ref'],'schedule'))+
+     '</b> &middot; '+esc(pick(sc,['date'],''))+' '+esc(pick(sc,['shift'],''))+'</div>'
+   :'<p class="req">Schedules and reports go straight between this tablet and '+
+     'GOOS. Nothing to pick, nothing to share.</p>')+
+  '<button class="'+(sc?'ghost':'gold')+'" style="margin-top:8px" '+
+  'onclick="autoLoad(true)">'+(sc?'Check for a newer schedule':
+  'Load today\u2019s schedule')+'</button>'+
+  '<div class="err" id="de"></div>'+
+  '<div class="req" style="margin-top:10px">Not there yet? Ask the office to '+
+  'press <b>Send recipes to the tablet</b> in GOOS, then tap again.</div>'+
+  '<button class="ghost" style="margin-top:6px" onclick="screenCode()">'+
+  'Change the tablet code</button></div>';
+ if(sc)bar([['Start the shift',beginShift]])}
+
 function folderSupport(){
  if(typeof window.showDirectoryPicker!=='function')return 'nopicker';
  if(!window.indexedDB)return 'nostore';
@@ -493,6 +564,7 @@ function procOf(r){var p=pick(r,['procedure','steps'],[]);
 var pendingSched=null;
 
 function screenLoad(){
+ if(srvOn()){if(!S.tcode)screenCode();else screenServer();return}
  $('#bar').style.display='none';$('#hdr').textContent='';
  /* With a folder picker the folder comes FIRST - the schedule is read out of
     it, so asking for a file before a folder would be backwards. One card,
@@ -711,6 +783,10 @@ function lookAgain(){autoLoad(true)}
    operator asked, so say plainly when nothing is there rather than falling
    back silently. */
 var LOADMSG={
+ srvempty:'GOOS has not sent a schedule to the tablet yet. Ask the office to '+
+  'press Send recipes to the tablet, then tap again.',
+ offline:'No connection to GOOS. Check the Wi-Fi, then tap again.',
+ server:'GOOS could not answer just now. Tap again in a moment.',
  denied:'This tablet needs permission to open that folder again. Tap "Load '+
   'today\u2019s schedule" once more, and when the box appears choose '+
   '"Allow on every visit" - NOT "Allow this time". Allow-this-time is asked '+
@@ -805,6 +881,13 @@ function autoLoad(manual){
    if(manual&&$('#de'))$('#de').textContent=LOADMSG[why]||LOADMSG.empty;
    return}
   adoptSched(j);pendingSched=null;screenList()};
+ if(srvOn()){
+  if(!S.tcode){settled=true;clearTimeout(bail);screenCode();return}
+  loadFromServer(function(j,why){
+   if(why==='code'){settled=true;clearTimeout(bail);
+    screenCode('GOOS no longer accepts this code - type the new one.');return}
+   handle(j,why)});
+  return}
  if(S.schedUrl){
   loadFromLink(function(j,why){
    if(j){handle(j,null);return}
@@ -1990,8 +2073,29 @@ function shareReport(pi,di){
   if(pdf&&navigator.canShare&&navigator.canShare({files:[pdf,jsn]})){
    navigator.share({files:[pdf,jsn],title:base}).then(okShare).catch(download)}
   else download()}
- if(DIR&&pdf)writeToDir([pdf,jsn],okFolder,viaShare);
- else viaShare()}
+ function local(){
+  if(DIR&&pdf)writeToDir([pdf,jsn],okFolder,viaShare);
+  else viaShare()}
+ if(!srvOn()||!S.tcode){local();return}
+ splash('Sending to GOOS\u2026');
+ srvRpc('goos_t_report',{p_code:S.tcode,p_lot:String(R.lot||''),p_name:base,
+   p_csv:reportCSV(R)},function(j,why){
+  if(j){mark();
+   if(sendQueue&&sendQueue.length){afterSend();return}
+   $('#app').innerHTML='<div class="card"><h2>Sent to GOOS</h2><p class="req">'+
+    'LOT <b>'+esc(R.lot||'')+'</b> reached GOOS. It is imported into stock and '+
+    'QA by the next open GOOS laptop - nothing else to do.</p></div>';
+   bar([['Back to today\u2019s batches',afterSend]]);return}
+  /* Kept on the tablet and flagged NOT SENT; the copy route is still there
+     for a day the Wi-Fi is down and the office needs the paper record. */
+  sendQueue=null;
+  $('#app').innerHTML='<div class="card"><h2>Not sent yet</h2><p class="req">'+
+   (why==='offline'?'No connection to GOOS.':'GOOS did not accept it ('+esc(why)+').')+
+   ' The report is kept on this tablet and marked NOT SENT - tap Send again '+
+   'when the Wi-Fi is back.</p></div>';
+  bar([['Send again',function(){shareReport(pi,di)}],
+       ['Save a copy on the tablet',local,'ghost'],
+       ['Back to today\u2019s batches',screenList,'ghost']])})}
 
 /* Send the report belonging to one ROW of the batch list - the tag and the
    button are next to each other, so the operator does not have to work out
@@ -2278,6 +2382,7 @@ function resumeBatch(){({lot:screenLot,steep:screenSteep,prep:screenPrep,
 function boot(){
  /* A batch in progress always wins - never interrupt a running cook. */
  if(S.sched&&S.batch){resumeBatch();return}
+ if(srvOn()){if(!S.tcode){screenCode();return}autoLoad(false);return}
  if(!canPickDir()){
   /* No folder picker on this browser: reports go out by share sheet, so
      confirm that once instead of asking every morning. */
