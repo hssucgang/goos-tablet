@@ -181,7 +181,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.99.67';
+var APPVER='3.99.70';
 /* Paint the version into the header once, so it is on EVERY screen - the
    header is the only element that survives every screen change. */
 try{var _v=document.getElementById('ver');
@@ -228,8 +228,8 @@ function loadFromServer(cb){
   if(!j){cb(null,why);return}
   var it=j.items||[],today=todayStr(),best=null;
   it.forEach(function(x){
-   if(!best&&x.payload&&String(pick(x.payload,['date'],'')).slice(0,10)===today)
-    best=x.payload});
+   if(!best&&x.payload&&String(pick(x.payload,['date'],'')).slice(0,10)===today){
+    best=x.payload;best._lines=x.lines||null}});
   if(!best){
    /* Nothing for today. The newest one is OFFERED, not loaded: running
       yesterday's list by mistake would make LOTs for a day already done,
@@ -627,8 +627,17 @@ function loadNewest(cb){
 function adoptSched(j){
  var oldRef=S.sched?pick(S.sched,['reference','ref'],''):'';
  var newRef=pick(j,['reference','ref'],'');
- if(oldRef&&newRef&&oldRef===newRef){S.sched=j;save();return false}
- S.sched=j;S.ops=pick(j,['operator'],'');S.done={};S.batch=null;save();return true}
+ /* Batches the server already knows are finished stay finished - after a
+    reload, a cleared browser or on a second tablet (3.99.70). */
+ var srvDone=j._lines||null;delete j._lines;
+ var keep=oldRef&&newRef&&oldRef===newRef;
+ S.sched=j;
+ if(!keep){S.ops=pick(j,['operator'],'');S.done={};S.batch=null}
+ S.done=S.done||{};
+ (srvDone||[]).forEach(function(l){
+  if(l&&l.status==='done'&&l.i!=null&&!S.done[l.i])
+   S.done[l.i]={lot:l.lot||'',at:l.at||'',shared:true}});
+ save();return !keep}
 
 /* Reports go into <tablet folder>/Finished Production, so the tablet folder
    itself holds nothing but today's schedule and staff never pick the wrong
@@ -1117,10 +1126,14 @@ function screenList(){
   (notes?'<p class="req">Note: '+esc(notes)+'</p>':'')+
   '<p class="req">Start one recipe at a time. Once the LOT is locked you stay '+
   'on that batch until its report is saved.</p>'+
-  '<div class="dest">Schedules \u2190 '+(DIR?('<b>'+esc(S.dest)+'</b>')
-   :'picked by hand')+'</div>'+
-  '<div class="dest">Reports \u2192 '+((DIR||OUT)?('<b>'+esc(outName())+'</b>')
-   :'share sheet \u2192 OneDrive')+'</div>'+
+  ((srvOn()&&S.tcode)
+   ?'<div class="dest">Schedules and reports \u2194 <b>GOOS server</b> (connected)</div>'
+   :'<div class="dest">Schedules \u2190 '+(DIR?('<b>'+esc(S.dest)+'</b>')
+     :'picked by hand')+'</div>'+
+    '<div class="dest">Reports \u2192 '+((DIR||OUT)?('<b>'+esc(outName())+'</b>')
+     :'share sheet \u2192 OneDrive')+'</div>'+
+    (srvOn()?'':'<div class="dest" style="color:#B3402C"><b>NOT connected to the '+
+     'GOOS server</b> \u2014 ask the office to press Set up tablet app again</div>'))+
   /* Every time is stamped from THIS tablet's clock, so if the clock is wrong
      every record of the shift is wrong. Showing it is the only way anyone
      would notice. */
@@ -1129,8 +1142,10 @@ function screenList(){
   '<div class="dest">App version <b>'+esc(APPVER)+'</b> \u2014 tell the office '+
   'if this is not the version they just sent</div></div>'+
   '<div class="card">'+(rows||'<p class="req">No recipes in this schedule.</p>')+'</div>'+
-  '<div class="card"><button class="ghost" onclick="newSched()">Load another schedule</button>'+
-  '<button class="ghost" onclick="screenFolders()">Change the folders</button>'+
+  ((srvOn()&&S.tcode)
+   ?'<div class="card"><button class="ghost" onclick="autoLoad(true)">Check for a newer schedule</button>'
+   :'<div class="card"><button class="ghost" onclick="newSched()">Load another schedule</button>'+
+    '<button class="ghost" onclick="screenFolders()">Change the folders</button>')+
   '<button class="ghost" onclick="screenOverride()">Supervisor override</button></div>';
  $('#bar').style.display='none'}
 
