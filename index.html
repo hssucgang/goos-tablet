@@ -181,7 +181,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.99.65';
+var APPVER='3.99.67';
 /* Paint the version into the header once, so it is on EVERY screen - the
    header is the only element that survives every screen change. */
 try{var _v=document.getElementById('ver');
@@ -230,9 +230,149 @@ function loadFromServer(cb){
   it.forEach(function(x){
    if(!best&&x.payload&&String(pick(x.payload,['date'],'')).slice(0,10)===today)
     best=x.payload});
-  if(!best&&it.length)best=it[0].payload;
-  if(!best){cb(null,'srvempty');return}
+  if(!best){
+   /* Nothing for today. The newest one is OFFERED, not loaded: running
+      yesterday's list by mistake would make LOTs for a day already done,
+      while a night shift past midnight still needs it one tap away. */
+   srvLatest=it.length?it[0].payload:null;
+   cb(null,'notoday');return}
+  srvLatest=null;
   cb(best,null)})}
+var srvLatest=null;
+
+/* ===== LIVE PROGRESS (3.99.67) =====
+   Every save() also tells the server where production stands - which batch
+   is open, at which step, which are done or voided - so the owner can watch
+   from a phone. It is sent a moment after the last change (not on every
+   keystroke), only when something actually changed, and anything that could
+   not go out is kept and sent with the next one. */
+var STEPW={lot:'Entering the LOT',steep:'Steeping',prep:'Weighing ingredients',
+ cook:'Cooking and hold',close:'Counting and sign-off'};
+function progSnap(){
+ if(!S.sched)return null;
+ var rs=recipes(),b=S.batch,ref=pick(S.sched,['reference','ref'],'');
+ var voids={};(S.audit||[]).forEach(function(a){
+  if(a.schedule_ref===ref&&a.lot)voids[a.recipe+'|'+a.lot]=a});
+ return{ref:ref,date:String(pick(S.sched,['date'],'')).slice(0,10),
+  shift:pick(S.sched,['shift'],''),operator:S.ops||'',
+  lines:rs.map(function(r,i){var d=S.done&&S.done[i],open=b&&b.i===i;
+   return{i:i,name:rName(r),qty:pQty(r),size:pSize(r),
+    status:d?'done':(open?'doing':'todo'),lot:d?d.lot:(open?(b.lot||''):''),
+    at:d?d.at:'',sent:d?!!d.shared:false,
+    step:open?(STEPW[b.step]||b.step||''):''}}),
+  voids:Object.keys(voids).map(function(k){var a=voids[k];
+   return{recipe:a.recipe,lot:a.lot,at:a.at,by:a.by,reason:a.reason,
+    flag:!!a.offline||a.verified===false}}),
+  cur:b?{i:b.i,name:rName(rs[b.i]),lot:b.lot||'',step:STEPW[b.step]||b.step||'',
+   started:b.started||'',t1:b.t1,t2:b.t2,t3:b.t3,t4:b.t4}:null}}
+var PROG={last:'',t:null};
+function progEvents(snap){
+ /* What changed since the last snapshot, as plain sentences for the
+    phone's timeline. Kept on the tablet until the server has them. */
+ var seen=S.evseen||{},out=[];
+ snap.lines.forEach(function(l){
+  var k=l.status+'|'+l.lot+'|'+l.step;
+  if(seen[snap.ref+'#'+l.i]===k)return;
+  seen[snap.ref+'#'+l.i]=k;
+  var what=l.status==='done'?'Finished'+(l.sent?'':' (report not sent yet)')
+   :l.status==='doing'?(l.step||'Started'):null;
+  if(what)out.push({ref:snap.ref,date:snap.date,recipe:l.name,lot:l.lot,what:what,
+   at:new Date().toISOString()})});
+ snap.voids.forEach(function(v){
+  var k='void|'+v.lot+'|'+v.at;
+  if(seen[k])return;seen[k]=1;
+  out.push({ref:snap.ref,date:snap.date,recipe:v.recipe,lot:v.lot,flag:v.flag,
+   what:'VOIDED by '+v.by+' - '+v.reason,at:v.at})});
+ S.evseen=seen;
+ if(out.length)S.evq=(S.evq||[]).concat(out).slice(-200)}
+function progPush(){
+ if(!srvOn()||!S||!S.tcode||!PROG)return;
+ clearTimeout(PROG.t);
+ PROG.t=setTimeout(function(){
+  var snap=progSnap();if(!snap)return;
+  progEvents(snap);
+  try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}
+  var j=JSON.stringify(snap),ev=S.evq||[],ovq=S.ovq||[];
+  if(j===PROG.last&&!ev.length&&!ovq.length)return;
+  srvRpc('goos_t_progress',{p_code:S.tcode,p_state:j,p_events:JSON.stringify(ev)},
+   function(ok){
+    if(!ok)return;
+    PROG.last=j;
+    S.evq=(S.evq||[]).slice(ev.length);
+    try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}
+    ovFlush()})},1500)}
+/* Overrides done offline with the passcode are reported once a connection
+   is back, so the approvers see them flagged. */
+function ovFlush(){
+ var q=S.ovq||[];if(!q.length)return;
+ srvRpc('goos_t_ovreq',{p_code:S.tcode,p_req:JSON.stringify(q[0])},function(ok,why){
+  if(!ok&&why!=='incomplete'&&why!=='bad data')return;
+  S.ovq=(S.ovq||[]).slice(1);
+  try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}
+  ovFlush()})}
+setInterval(function(){PROG.last='';progPush()},60000);
+
+/* ===== OVERRIDE APPROVED FROM A PHONE =====
+   With the server reachable the tablet can only ASK: the request goes to the
+   owner and QA, and the batch stays exactly as it is until one of them
+   approves it. The passcode is the offline fallback only. */
+var OVOFF=false;
+function ovOnline(){return srvOn()&&!!S.tcode&&!OVOFF}
+function ovRequest(how,why,who){
+ var b=S.batch,rs=recipes();
+ var req={action:how,reason:why,who:who,lot:b?(b.lot||''):'',
+  recipe:b&&rs[b.i]?rName(rs[b.i]):'',ref:pick(S.sched||{},['reference','ref'],''),
+  date:String(pick(S.sched||{},['date'],'')).slice(0,10)};
+ $('#ove').textContent='Sending to the approvers\u2026';
+ srvRpc('goos_t_ovreq',{p_code:S.tcode,p_req:JSON.stringify(req)},function(j,err){
+  if(!j){
+   if(err==='offline'){OVOFF=true;screenOverride();
+    $('#ove').textContent='No connection to GOOS, so the request could not be '+
+     'sent. While offline the supervisor passcode can be used - it will be '+
+     'flagged to the owner and QA as soon as the tablet is back online.';return}
+   $('#ove').textContent='GOOS did not accept the request ('+err+').';return}
+  S.ovwait={id:j.id,how:how,why:why,who:who,at:nowISO()};save();
+  screenOvWait()})}
+function screenOvWait(){
+ var w=S.ovwait;if(!w){if(S.batch)resumeBatch();else screenList();return}
+ $('#hdr').innerHTML='Supervisor override';
+ $('#app').innerHTML='<div class="card"><h2>Waiting for approval</h2>'+
+  '<p class="req">Sent to the owner and QA on their phones. This screen moves on '+
+  'by itself once one of them decides.</p>'+
+  '<div class="req"><b>'+esc({redo:'Void and start again',back:'Void and go back',
+   reload:'Reload the schedule'}[w.how]||w.how)+'</b><br>'+esc(w.why)+
+  '<br>Asked by '+esc(w.who)+'</div>'+
+  '<div class="err" id="owe"></div></div>';
+ bar([['Cancel the request',function(){
+   srvRpc('goos_t_ovget',{p_code:S.tcode,p_id:String(w.id),p_cancel:'yes'},function(){
+    S.ovwait=null;save();if(S.batch)resumeBatch();else screenList()})},'ghost']]);
+ ovPoll()}
+var OVP=null;
+function ovPoll(){
+ clearTimeout(OVP);
+ var w=S.ovwait;if(!w)return;
+ srvRpc('goos_t_ovget',{p_code:S.tcode,p_id:String(w.id)},function(j,err){
+  if(!S.ovwait||S.ovwait.id!==w.id)return;
+  if(j&&j.status==='approved'){
+   S.ovwait=null;save();
+   ovApply(w.how,w.why+' [approved on phone by '+(j.by||'?')+
+    (j.note?': '+j.note:'')+']',w.who);return}
+  if(j&&(j.status==='rejected'||j.status==='expired'||j.status==='cancelled')){
+   S.ovwait=null;save();
+   $('#app').innerHTML='<div class="card"><h2>'+(j.status==='rejected'?
+    'Override rejected':'Request '+esc(j.status))+'</h2><p class="req">'+
+    (j.status==='rejected'?'Rejected by <b>'+esc(j.by)+'</b>'+
+     (j.note?': '+esc(j.note):'')+'. The batch carries on as it was.'
+     :'Nobody approved it in time. Ask again if it is still needed.')+'</p></div>';
+   bar([['Back to the batch',function(){if(S.batch)resumeBatch();else screenList()}]]);
+   return}
+  if($('#owe'))$('#owe').textContent=!j?(err==='offline'?'No connection - still '+
+   'waiting; it is checked again every few seconds.':''):
+   (j.approvers?'':'Nobody who can approve is signed in to the GOOS phone app.');
+  OVP=setTimeout(ovPoll,5000)})}
+
+function openLatest(){if(!srvLatest)return;
+ adoptSched(srvLatest);srvLatest=null;pendingSched=null;screenList()}
 function screenCode(msg){
  $('#bar').style.display='none';$('#hdr').textContent='';
  $('#app').innerHTML='<div class="card"><h2>Connect this tablet to GOOS</h2>'+
@@ -254,6 +394,8 @@ function screenCode(msg){
 function screenServer(){
  $('#bar').style.display='none';$('#hdr').textContent='';
  var sc=pendingSched||S.sched;
+ if(sc&&String(pick(sc,['date'],'')).slice(0,10)!==todayStr())sc=null;
+ var unsent=(S.pending||[]).filter(function(p){return !p._shared}).length;
  $('#app').innerHTML='<div class="card"><h2>Today\u2019s schedule</h2>'+
   (sc?'<div class="req">Loaded: <b>'+esc(pick(sc,['reference','ref'],'schedule'))+
      '</b> &middot; '+esc(pick(sc,['date'],''))+' '+esc(pick(sc,['shift'],''))+'</div>'
@@ -263,6 +405,15 @@ function screenServer(){
   'onclick="autoLoad(true)">'+(sc?'Check for a newer schedule':
   'Load today\u2019s schedule')+'</button>'+
   '<div class="err" id="de"></div>'+
+  (unsent?'<div class="err" style="margin-top:10px">'+unsent+' report(s) from '+
+   'an earlier batch have not reached GOOS yet.</div><button class="gold" '+
+   'style="margin-top:6px" onclick="reshareAll()">Send them now</button>':'')+
+  (srvLatest&&!sc?'<div class="req" style="margin-top:10px">The latest schedule '+
+   'is <b>'+esc(pick(srvLatest,['reference','ref'],''))+'</b> for <b>'+
+   esc(pick(srvLatest,['date'],''))+'</b>. Only open it if that shift is still '+
+   'running.</div><button class="ghost" style="margin-top:6px" '+
+   'onclick="openLatest()">Open '+esc(pick(srvLatest,['date'],''))+
+   '\u2019s schedule</button>':'')+
   '<div class="req" style="margin-top:10px">Not there yet? Ask the office to '+
   'press <b>Send recipes to the tablet</b> in GOOS, then tap again.</div>'+
   '<button class="ghost" style="margin-top:6px" onclick="screenCode()">'+
@@ -285,7 +436,8 @@ var S=JSON.parse(localStorage.getItem(K)||'null')||
   {sched:null,ops:'',done:{},batch:null,pending:[],dest:null};
 if(!S.pending)S.pending=[];
 if(!S.done)S.done={};
-function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
+function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}
+ progPush()}
 function $(s){return document.querySelector(s)}
 function esc(t){return String(t==null?'':t).replace(/[<>&"]/g,function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]})}
 function pick(o,keys,d){if(d===undefined)d='';for(var i=0;i<keys.length;i++){var k=keys[i];if(o&&o[k]!=null&&o[k]!=='')return o[k]}return d}
@@ -783,6 +935,8 @@ function lookAgain(){autoLoad(true)}
    operator asked, so say plainly when nothing is there rather than falling
    back silently. */
 var LOADMSG={
+ notoday:'There is no production schedule for today. Nothing to make unless '+
+  'the office sends one.',
  srvempty:'GOOS has not sent a schedule to the tablet yet. Ask the office to '+
   'press Send recipes to the tablet, then tap again.',
  offline:'No connection to GOOS. Check the Wi-Fi, then tap again.',
@@ -878,7 +1032,8 @@ function autoLoad(manual){
      if($('#de'))$('#de').textContent=LOADMSG.denied});
     return}
    screenLoad();
-   if(manual&&$('#de'))$('#de').textContent=LOADMSG[why]||LOADMSG.empty;
+   if((manual||why==='notoday')&&$('#de'))
+    $('#de').textContent=LOADMSG[why]||LOADMSG.empty;
    return}
   adoptSched(j);pendingSched=null;screenList()};
  if(srvOn()){
@@ -1102,7 +1257,11 @@ function screenOverride(){
   '<textarea id="ovr" rows="3" placeholder="e.g. Recipe corrected in GOOS - sugar '+
   'was 4.2 kg, should be 3.6 kg"></textarea>'+
   '<label>Your name</label><input id="ovn" autocomplete="off" value="'+esc(S.ovwho||'')+'">'+
-  (ovCfg()
+  (ovOnline()
+   ? '<div class="ovopt"><b>Needs approval on a phone</b><br><span class="req">'+
+     'The request goes to the owner and QA. Nothing changes on this batch '+
+     'until one of them approves it.</span></div>'
+   : ovCfg()
    ? '<label>'+esc(ovLabel().charAt(0).toUpperCase()+ovLabel().slice(1))+'</label>'+
      '<input id="ovp" type="password" autocomplete="off" inputmode="text">'
    : '<div class="ovopt"><b>This batch has no override key</b><br>'+
@@ -1124,7 +1283,7 @@ function screenOverride(){
      '</div>')+
   '<div class="err" id="ove"></div></div>';
  bar([['Cancel',function(){if(S.batch)resumeBatch();else screenList()},'ghost'],
-      ['Authorise override',ovSubmit]])}
+      [ovOnline()?'Send for approval':'Authorise override',ovSubmit]])}
 
 function ovSubmit(){
  var wait=ovLocked();
@@ -1132,10 +1291,12 @@ function ovSubmit(){
   ' seconds.';return}
  var how=(document.querySelector('input[name="ovw"]:checked')||{}).value||'back';
  var why=($('#ovr').value||'').trim(),who=($('#ovn').value||'').trim(),
-     pass=$('#ovp').value||'';
+     pass=($('#ovp')||{}).value||'';
  if(why.length<10){$('#ove').textContent=
   'Write the reason - it goes on the batch record.';return}
  if(!who){$('#ove').textContent='Enter your name.';return}
+ S.ovwho=who;
+ if(ovOnline()){ovRequest(how,why,who);return}
  if(!ovCfg()){
   /* Break glass. Deliberately narrow: it can only ABANDON a batch, never
      alter one, every field is still required, and the report says plainly
@@ -1161,7 +1322,15 @@ function ovSubmit(){
   OV.tries=0;S.ovwho=who;save();ovApply(how,why,who)})}
 
 function ovApply(how,why,who,unverified){
- var b=S.batch,rec={at:nowISO(),by:who,reason:why,action:how,
+ var off=srvOn()&&!!S.tcode&&OVOFF;
+ if(off){why=why+' [OFFLINE - '+(unverified?'no passcode':'passcode')+
+  ' used on the tablet, not approved on a phone]';OVOFF=false}
+ var b0=S.batch;
+ if(off)S.ovq=(S.ovq||[]).concat([{action:how,reason:why,who:who,offline:true,
+  lot:b0?(b0.lot||''):'',recipe:b0&&recipes()[b0.i]?rName(recipes()[b0.i]):'',
+  ref:pick(S.sched||{},['reference','ref'],''),
+  date:String(pick(S.sched||{},['date'],'')).slice(0,10)}]);
+ var b=S.batch,rec={at:nowISO(),by:who,reason:why,action:how,offline:off,
   verified:!unverified,
   lot:b?b.lot:'',recipe:b&&recipes()[b.i]?rName(recipes()[b.i]):'',
   schedule_ref:pick(S.sched||{},['reference','ref'],'')};
@@ -1189,7 +1358,7 @@ function ovAfter(how,i,pi){
  function go(){
   if(how==='reload'){
    S.done={};S.batch=null;save();
-   if(DIR){autoLoad(true);return}
+   if(DIR||(srvOn()&&S.tcode)){S.sched=null;save();autoLoad(true);return}
    S.sched=null;save();pendingSched=null;screenLoad();return}
   if(how==='redo'&&i!=null){start(i);return}
   screenList()}
@@ -1652,10 +1821,10 @@ function screenClose(){var b=S.batch,r=recipes()[b.i];
   '<label>300ml bottles</label>'+
   '<input id="y3" inputmode="numeric" autocomplete="off" value="'+
   esc(b.y3==null?'':b.y3)+'">'+
-  '<div class="err" id="ey"></div></div>';
+  '<div class="err" id="ey"></div></div>'+lblCard(b);
  bar([['Override',screenOverride,'ghost'],
   ['Back',function(){b.step='cook';save();screenCook()},'ghost'],
-  [DIR?'Save report':'Save &amp; send PDF',function(){
+  [(srvOn()&&S.tcode)?'Save &amp; send to GOOS':(DIR?'Save report':'Save &amp; send PDF'),function(){
    var sg=$('#sig').value.trim();
    if(!sg){$('#e').textContent='Sign-off name is required.';return}
    var v1=($('#y1').value||'').trim(),v3=($('#y3').value||'').trim();
@@ -1669,7 +1838,64 @@ function screenClose(){var b=S.batch,r=recipes()[b.i];
       batch that filled none would read as a packaging run that never
       happened. */
    b.y1t=v1===''?'':(($('#y1t')||{}).value||'Round');
+   if(!lblRead(b,!!(v1||v3)))return;
    b.inc=$('#inc').value.trim();b.sig=sg;saveReport()}]])}
+
+/* STICKER LABELS (3.99.67). Which label went on, picked from the labels in
+   GOOS's Raw Materials list, and how many were actually used - counted, not
+   worked out, because spoiled and re-stuck labels are real. "No sticker
+   label" is its own answer, so a batch without one is never mistaken for a
+   batch where nobody said. */
+function lblList(){return (S.sched&&S.sched.labels)||null}
+function lblCard(b){
+ var L=lblList();if(!L)return '';
+ var rows=b.lbl&&b.lbl.length?b.lbl:[{id:'',q:''}];
+ return '<div class="card"><h2>Sticker labels used</h2>'+
+  '<p class="req">Pick the label that went on the bottles and type how many were '+
+  'used, including spoiled ones. Choose <b>No sticker label</b> if none was '+
+  'put on.</p><div id="lblrows">'+rows.map(function(x,k){return lblRow(L,x,k)}).join('')+
+  '</div><button class="ghost" style="margin-top:6px" onclick="lblAdd()">'+
+  '+ Another label</button><div class="err" id="el"></div></div>'}
+function lblRow(L,x,k){
+ return '<div class="lblrow" style="display:flex;gap:8px;margin-top:8px">'+
+  '<select class="lbs" style="flex:2">'+
+  '<option value="">Choose the label\u2026</option>'+
+  '<option value="none"'+(x.id==='none'?' selected':'')+'>No sticker label</option>'+
+  L.map(function(o){return '<option value="'+o.id+'"'+(String(x.id)===String(o.id)?
+   ' selected':'')+'>'+esc(o.name)+'</option>'}).join('')+'</select>'+
+  '<input class="lbq" inputmode="numeric" placeholder="How many" style="flex:1" '+
+  'autocomplete="off" value="'+esc(x.q==null?'':x.q)+'"></div>'}
+function lblGrab(){
+ var out=[];
+ Array.prototype.forEach.call(document.querySelectorAll('.lblrow'),function(r){
+  out.push({id:r.querySelector('.lbs').value,q:(r.querySelector('.lbq').value||'').trim()})});
+ return out}
+function lblAdd(){
+ var L=lblList();if(!L)return;
+ var cur=lblGrab();cur.push({id:'',q:''});
+ $('#lblrows').innerHTML=cur.map(function(x,k){return lblRow(L,x,k)}).join('')}
+function lblRead(b,filled){
+ var L=lblList();if(!L){b.lbl=null;return true}
+ var rows=lblGrab().filter(function(x){return x.id||x.q});
+ b.lbl=rows;
+ if(!rows.length){
+  if(!filled)return true;
+  $('#el').textContent='Choose the sticker label used, or No sticker label.';return false}
+ var none=rows.some(function(x){return x.id==='none'});
+ if(none&&rows.length>1){$('#el').textContent='No sticker label cannot be '+
+  'combined with a label - remove one of them.';return false}
+ if(none)return true;
+ for(var k=0;k<rows.length;k++){
+  if(!rows[k].id){$('#el').textContent='Choose a label on every row.';return false}
+  if(!/^\d+$/.test(rows[k].q)||num(rows[k].q)<=0){$('#el').textContent=
+   'Type how many labels were used - a whole number.';return false}}
+ return true}
+function lblOut(b){
+ var L=lblList()||[],by={};L.forEach(function(o){by[String(o.id)]=o.name});
+ var rows=(b.lbl||[]).filter(function(x){return x.id&&x.id!=='none'});
+ return{labels:rows.map(function(x){return String(x.id)+'~'+
+   String(by[String(x.id)]||'').replace(/[~;]/g,' ')+'~'+x.q}).join(';'),
+  no_label:(b.lbl||[]).some(function(x){return x.id==='none'})?'yes':''}}
 
 /* ================= 7. PDF ENGINE =================
    A small vector PDF writer: filled bands, ruled tables, coloured pills.
@@ -1837,6 +2063,7 @@ function reportObject(){
   yield_1l_bottles:(b.y1==null?'':b.y1),
   yield_1l_type:(b.y1==null?'':(b.y1t||'Round')),
   yield_300_bottles:(b.y3==null?'':b.y3),
+  labels:lblOut(b).labels,no_label:lblOut(b).no_label,
   /* WHO checked, and WHEN - at both ends of the hold. Sent as recorded,
      with no pass/fail worked out here: the tablet's job is to witness, and
      GOOS decides what counts as on time so the rule can be changed in one
@@ -1867,7 +2094,8 @@ var CSVCOLS=['report_format','schedule_ref','prod_date','shift','product',
  'voided','void_reason','void_by','void_at','void_verified',
  'yield_1l_bottles','yield_300_bottles','yield_1l_type',
  'qa_start_by','qa_start_at','qa_end_by','qa_end_at',
- 'steep_temp_c','steep_temp_at','steep_minutes','steep_started_at'];
+ 'steep_temp_c','steep_temp_at','steep_minutes','steep_started_at',
+ 'labels','no_label'];
 
 function csvCell(v){
  if(v===null||v===undefined)return '';
@@ -1896,7 +2124,8 @@ function reportCSV(R){
    R.yield_300_bottles===''||R.yield_300_bottles==null?'':R.yield_300_bottles,
    R.yield_1l_type||'',
    R.qa_start_by||'',R.qa_start_at||'',R.qa_end_by||'',R.qa_end_at||'',
-   R.steep_temp_c,R.steep_temp_at,R.steep_minutes,R.steep_started_at])
+   R.steep_temp_c,R.steep_temp_at,R.steep_minutes,R.steep_started_at,
+   R.labels||'',R.no_label||''])
    .map(csvCell).join(','));
  });
  return '\ufeff'+rows.join('\r\n')+'\r\n';
@@ -2123,8 +2352,14 @@ function afterSend(){
  if(sendQueue&&sendQueue.length){reshare(sendQueue.shift());return}
  var queued=sendQueue!=null;
  sendQueue=null;
- if(queued){screenList();return}
- if(ovNext)ovContinue();else screenList()}
+ if(queued){homeScreen();return}
+ if(ovNext)ovContinue();else homeScreen()}
+/* Back to the batch list - unless the list is an old day's, in which case
+   the server screen, so nobody carries on with yesterday's schedule. */
+function homeScreen(){
+ if(srvOn()&&(!S.sched||String(pick(S.sched,['date'],'')).slice(0,10)!==todayStr())){
+  screenLoad();return}
+ screenList()}
 
 /* After a VOID report has been saved, carry on to whatever the override
    chose - otherwise the supervisor lands back on the batch list and has to
@@ -2381,6 +2616,7 @@ function resumeBatch(){({lot:screenLot,steep:screenSteep,prep:screenPrep,
 
 function boot(){
  /* A batch in progress always wins - never interrupt a running cook. */
+ if(srvOn()&&S.tcode&&S.ovwait){screenOvWait();return}
  if(S.sched&&S.batch){resumeBatch();return}
  if(srvOn()){if(!S.tcode){screenCode();return}autoLoad(false);return}
  if(!canPickDir()){
