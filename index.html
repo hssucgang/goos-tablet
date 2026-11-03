@@ -181,7 +181,7 @@ li{margin-bottom:10px;font-size:18px}
 var K='goos_tab_v5';
 /* Stamped in when GOOS writes the app, so a tablet can be checked against the
    laptop without guessing which build it is running. */
-var APPVER='3.99.87';
+var APPVER='3.99.100';
 /* Paint the version into the header once, so it is on EVERY screen - the
    header is the only element that survives every screen change. */
 try{var _v=document.getElementById('ver');
@@ -687,6 +687,17 @@ function verifyWritten(D,files,done,fail){
 /* ---- schedule readers ---- */
 function recipes(){return pick(S.sched,['recipes','lines','items'],[])}
 function rName(r){return pick(r,['name','recipe','recipe_name','product'],'Recipe')}
+/* 3.99.95 - a client's private-label product says so, everywhere it shows. */
+function tollTag(r){var t=r&&r.toll;return t&&t.client?' <span style="background:#6B3F96;'+
+ 'color:#fff;border-radius:6px;padding:2px 8px;font-size:13px;white-space:nowrap">TOLL &middot; '+
+ esc(t.client)+'</span>':''}
+function tollLotErr(r,v){var t=r&&r.toll,u=String(v||'').trim().toUpperCase();
+ if(t&&t.prefix){return u.indexOf(String(t.prefix).toUpperCase())===0?'':
+  'This is '+esc(t.client)+'\u2019s product: its LOT must start with <b>'+esc(t.prefix)+'</b>.'}
+ var ps=(S.sched&&S.sched.toll_prefixes)||[];
+ for(var i=0;i<ps.length;i++){if(ps[i]&&u.indexOf(String(ps[i]).toUpperCase())===0)
+  return 'LOTs starting with <b>'+esc(ps[i])+'</b> are for a toll client\u2019s products only.'}
+ return ''}
 
 /* THE PACKING NOTE - what the office asked to be filled, in bottles.
    It was already travelling in the schedule file but was never shown, so the
@@ -1114,7 +1125,7 @@ function screenList(){
       side by side and clearly labelled rather than merged into one line
       that could be read as either. Omitted entirely when the office left
       the note blank - see packNote(). */
-   '<div><div class="name">'+esc(rName(r))+'</div><div class="req">'+
+   '<div><div class="name">'+esc(rName(r))+tollTag(r)+'</div><div class="req">'+
    esc(pQty(r))+' &times; '+esc(pSize(r))+(d?' &middot; LOT '+esc(d.lot):'')+
    (packNote(r)?'<span class="packinline"><span class="packinlab">PACK</span>'+
     packNote(r)+'</span>':'')+'</div></div>'+
@@ -1407,7 +1418,8 @@ function screenLot(){
     '<label>LOT number</label><input id="lot" value="'+esc(b.lot)+'" autocomplete="off">'+
     '<div class="err" id="e"></div>';
  box+='</div>'+prepCard(r)+'<div class="card" style="display:none">';
- $('#app').innerHTML='<div class="card"><h2>'+esc(rName(r))+'</h2>'+
+ $('#app').innerHTML='<div class="card"><h2>'+esc(rName(r))+tollTag(r)+'</h2>'+
+  (r&&r.toll&&r.toll.prefix&&!locked?'<div class="req">LOT must start with <b>'+esc(r.toll.prefix)+'</b></div>':'')+
   '<div class="req">'+esc(pQty(r))+' &times; '+esc(pSize(r))+'</div>'+box+'</div>';
  if(locked){
   bar([['Supervisor override',screenOverride,'ghost'],
@@ -1419,6 +1431,8 @@ function screenLot(){
    ['Lock LOT &amp; begin',function(){
     var v=$('#lot').value.trim();
     if(!v){$('#e').textContent='LOT number is required.';return}
+    var tl=tollLotErr(recipes()[S.batch.i],v);
+    if(tl){$('#e').innerHTML=tl;return}
     var today=String(pick(S.sched||{},['date'],'')).slice(0,10);
     /* The same LOT twice in one schedule is always a typing mistake. */
     var twice=Object.keys(S.done||{}).some(function(k){
@@ -1863,8 +1877,11 @@ function screenClose(){var b=S.batch,r=recipes()[b.i];
    if((v1&&!/^\d+(\.\d+)?$/.test(v1))||(v3&&!/^\d+(\.\d+)?$/.test(v3))){
     $('#ey').textContent='Bottle counts must be numbers - leave a box empty '+
      'if that size was not filled.';return}
-   if(!v1&&!v3&&!confirm('No bottle yield entered.\n\nSave the report without '+
-    'it?'))return;
+   /* 3.99.100 - REQUIRED. A report with no count took the ingredients out
+      and put no bottles into Finished Goods. Nothing filled at all is a
+      supervisor override (void), not an empty box. */
+   if(!v1&&!v3){$('#ey').textContent='Type how many bottles this batch filled '+
+    '(1L and/or 300ml). If nothing was filled, use Override.';return}
    b.y1=v1===''?null:num(v1);b.y3=v3===''?null:num(v3);
    /* Only meaningful when 1L bottles were actually filled - a type on a
       batch that filled none would read as a packaging run that never
